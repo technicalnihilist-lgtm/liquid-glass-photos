@@ -188,7 +188,8 @@ stub = """<script>
     requestAccess(){},
     photos(){ return JSON.stringify({count:ITEMS.length,items:ITEMS}); },
     favs(){ return JSON.stringify(FAVS); },
-    setFav(){}, share(){}, delete(){}, pick(){}, theme(){}, info(){}
+    setFav(){}, share(){}, delete(){}, pick(){}, theme(){}, info(){},
+    playVideo(id){ (window.__played = window.__played || []).push(id); }
   };
 })();
 </script>
@@ -202,6 +203,11 @@ setTimeout(function(){
   if(SHOT==='albums') click('[data-tab="albums"]');
   else if(SHOT==='search') click('[data-tab="search"]');
   else if(SHOT==='viewer'){ const t=q('.tile'); if(t) t.click(); }
+  else if(SHOT==='video'){
+    const list=current().map(function(p){return p.id});
+    const i=current().findIndex(function(p){return p.kind==='video'});
+    if(i>=0) openViewer(list,i);
+  }
   else if(SHOT==='select'){
     click('[data-act="startsel"]');
     setTimeout(function(){ document.querySelectorAll('.tile').forEach(function(t,i){ if(i<4) t.click(); }); },250);
