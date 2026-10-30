@@ -1,6 +1,7 @@
 package com.liquidglass.photos;
 
 import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
@@ -21,19 +22,52 @@ import android.widget.VideoView;
 /**
  * Full-screen native video player.
  *
- * WebView's media player does not fetch <video> sources through
- * shouldInterceptRequest, so videos are played here with the platform
- * decoder instead of inside the WebView.
+ * Two things matter here:
+ *  - WebView's media player does not fetch <video> sources through
+ *    shouldInterceptRequest, so playback happens natively on the MediaStore URI.
+ *  - The video must fill the screen with no black bars, so the surface is
+ *    measured to the centre-cropped video size and the decoder is told to scale
+ *    to fit with cropping.
  */
 public class PlayerActivity extends Activity {
 
-    private VideoView vv;
+    private CropVideoView vv;
     private Uri uri;
     private boolean triedExternal = false;
 
     private int dp(float v) {
         return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v,
                 getResources().getDisplayMetrics());
+    }
+
+    /** VideoView that measures itself to cover its parent (centre-crop, no letterboxing). */
+    static class CropVideoView extends VideoView {
+        private int videoW = 0, videoH = 0;
+
+        CropVideoView(Context c) {
+            super(c);
+        }
+
+        void setVideoSize(int w, int h) {
+            videoW = w;
+            videoH = h;
+            requestLayout();
+        }
+
+        @Override
+        protected void onMeasure(int widthSpec, int heightSpec) {
+            int w = MeasureSpec.getSize(widthSpec);
+            int h = MeasureSpec.getSize(heightSpec);
+            if (videoW > 0 && videoH > 0 && w > 0 && h > 0) {
+                // scale up until the video covers the whole window
+                float scale = Math.max((float) w / videoW, (float) h / videoH);
+                int nw = Math.round(videoW * scale);
+                int nh = Math.round(videoH * scale);
+                setMeasuredDimension(Math.max(nw, w), Math.max(nh, h));
+            } else {
+                setMeasuredDimension(w, h);
+            }
+        }
     }
 
     @Override
@@ -53,16 +87,19 @@ public class PlayerActivity extends Activity {
 
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
+        root.setClipChildren(true);
+        root.setClipToPadding(true);
         setContentView(root);
 
-        vv = new VideoView(this);
+        vv = new CropVideoView(this);
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
         lp.gravity = Gravity.CENTER;
         root.addView(vv, lp);
 
+        // anchor the scrubber to the window, not the (possibly oversized) video view
         MediaController mc = new MediaController(this);
-        mc.setAnchorView(vv);
+        mc.setAnchorView(root);
         vv.setMediaController(mc);
 
         TextView close = new TextView(this);
@@ -89,6 +126,16 @@ public class PlayerActivity extends Activity {
 
         vv.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
             public void onPrepared(MediaPlayer mp) {
+                int w = mp.getVideoWidth();
+                int h = mp.getVideoHeight();
+                if (w > 0 && h > 0) {
+                    vv.setVideoSize(w, h);
+                    try {
+                        mp.setVideoScalingMode(
+                                MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING);
+                    } catch (Exception ignored) {
+                    }
+                }
                 mp.setLooping(false);
                 vv.start();
             }
