@@ -682,6 +682,12 @@ window.__native={
       setTimeout(loadLibrary,400);
     }
   },
+  ime(h){
+    if(h>0){
+      const a=document.activeElement;
+      if(a&&a.scrollIntoView)setTimeout(()=>a.scrollIntoView({block:'center',behavior:'smooth'}),80);
+    }
+  },
   onResume(){
     if(HAS_ACCESS!==!!(N&&N.access())){HAS_ACCESS=!!(N&&N.access());}
     if(HAS_ACCESS&&LOADED)setTimeout(loadLibrary,120);
