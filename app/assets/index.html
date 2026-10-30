@@ -160,15 +160,9 @@ svg{stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-l
 @keyframes appIn{0%{opacity:0;transform:scale(.84)}55%{opacity:1;transform:scale(1.03)}78%{transform:scale(.99)}100%{opacity:1;transform:none}}
 .pop{animation:popIn .75s cubic-bezier(.3,1.3,.5,1) var(--d,0s) backwards}
 .boot{animation:appIn .95s cubic-bezier(.25,1.3,.45,1) backwards}
-.viewer .slide[data-c] img,.viewer .slide[data-c] video{animation:popIn .7s cubic-bezier(.3,1.3,.5,1) backwards}
-.tile video,.album .cv video{width:100%;height:100%;object-fit:cover;display:block;pointer-events:none}
-.tile.on video{transform:scale(.82);border-radius:10px}
-.tile video{transition:transform .35s cubic-bezier(.3,1.6,.5,1),border-radius .3s}
+.viewer .slide[data-c] img{animation:popIn .7s cubic-bezier(.3,1.3,.5,1) backwards}
 .tile .vb{position:absolute;right:6px;bottom:5px;font-style:normal;font-size:10px;color:#fff;background:rgba(0,0,0,.5);padding:2px 7px;border-radius:10px}
-.slide video{max-width:100%;max-height:100%;display:block;pointer-events:none;border-radius:4px}
-.vplay{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:78px;height:78px;border-radius:50%;display:grid;place-items:center;color:#fff;background:rgba(0,0,0,.42);border:1.6px solid rgba(255,255,255,.75);box-shadow:0 10px 30px rgba(0,0,0,.45)}
-.vplay svg{width:32px;height:32px;margin-left:4px}
-.vposter{max-width:100%;max-height:100%;object-fit:contain;border-radius:4px;opacity:.92}
+
 </style>
 </head>
 <body>
@@ -185,7 +179,7 @@ svg{stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-l
   </nav>
   <div class="selbar glass hide" id="selbar"></div>
 </div>
-<input type="file" id="file" accept="image/*,video/*" multiple class="hide">
+<input type="file" id="file" accept="image/*" multiple class="hide">
 <div class="toast glass" id="toast"></div>
 
 <script>
@@ -205,7 +199,6 @@ const I={
  info:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.1"/></svg>',
  restore:'<svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 3-6.2M4 4v4h4"/></svg>',
  check:'<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
- play:'<svg viewBox="0 0 24 24" style="fill:currentColor;stroke:none"><path d="M8 5.2v13.6L19 12z"/></svg>',
  lock:'<svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>'
 };
 const FAV='<svg class="fv" viewBox="0 0 24 24" style="stroke:none"><path d="M12 20s-7.5-4.6-9-9.3C2 7.5 4 5 6.8 5c1.9 0 3.5 1 5.2 3 1.7-2 3.3-3 5.2-3C20 5 22 7.5 21 10.7 19.5 15.4 12 20 12 20z"/></svg>';
@@ -284,14 +277,9 @@ try{(JSON.parse(localStorage.getItem('lgt')||'[]')||[]).forEach(i=>TRASH.add(+i)
 const saveTrash=()=>{try{localStorage.setItem('lgt',JSON.stringify([...TRASH]))}catch(e){}};
 let HAS_ACCESS=!!META.access, LOADED=false;
 
-const thumbSrc=p=>`/thumb/${p.kind==='video'?'v':'i'}/${p.id}`;
-const fullSrc=p=>`/media/${p.kind==='video'?'v':'i'}/${p.id}`;
+const thumbSrc=p=>`/thumb/${p.id}`;
+const fullSrc=p=>`/media/${p.id}`;
 const isCam=p=>/camera|dcim/i.test(p.bucket||'');
-function playVideo(p){
-  if(!p)return false;
-  if(N&&N.playVideo){try{N.playVideo(p.id);return true}catch(e){}}
-  return false;
-}
 const isShot=p=>/screenshot|screen.?shot/i.test((p.bucket||'')+' '+(p.name||''));
 const byId=id=>P.find(p=>p.id===id);
 
@@ -305,7 +293,7 @@ function loadLibrary(){
     const fs=new Set(favs);
     P.length=0;
     (data.items||[]).forEach(o=>{
-      P.push({id:o.id,kind:o.v?'video':'image',name:o.n,bucket:o.b,mime:o.m,date:o.d,size:o.s,w:o.w,h:o.h,fav:fs.has(String(o.id))});
+      P.push({id:o.id,kind:'image',name:o.n,bucket:o.b,mime:o.m,date:o.d,size:o.s,w:o.w,h:o.h,fav:fs.has(String(o.id))});
     });
     LOADED=true;
     renderAll(true);
@@ -318,7 +306,6 @@ const ALB=()=>[
   {id:'fav',name:'Favourites',f:p=>p.fav&&!TRASH.has(p.id)},
   {id:'camera',name:'Camera',f:p=>isCam(p)&&!TRASH.has(p.id)},
   {id:'shots',name:'Screenshots',f:p=>isShot(p)&&!TRASH.has(p.id)},
-  {id:'videos',name:'Videos',f:p=>p.kind==='video'&&!TRASH.has(p.id)},
   {id:'trash',name:'Trash',f:p=>TRASH.has(p.id)}
 ];
 const sorted=a=>a.slice().sort((x,y)=>y.date-x.date);
@@ -332,7 +319,6 @@ function current(){
     return sorted(P.filter(p=>{
       if(TRASH.has(p.id))return false;
       if(S.chip==='fav')return p.fav;
-      if(S.chip==='videos')return p.kind==='video';
       if(S.chip==='camera')return isCam(p);
       if(S.chip==='shots')return isShot(p);
       if(!q)return false;
@@ -375,7 +361,7 @@ function tilesHTML(list){
   const groups=[];let cnt=0;
   list.forEach(p=>{const k=new Date(p.date).toDateString();let g=groups[groups.length-1];if(!g||g.k!==k)groups.push(g={k,ts:p.date,items:[]});g.items.push(p)});
   return groups.map(g=>`<div class="sec"><span>${fmtDay(g.ts)}</span><small>${g.items.length}</small></div><div class="grid">${g.items.map(p=>
-    `<div class="tile ${S.sel.has(p.id)?'on':''}${S.anim?' pop':''}" style="--d:${(cnt++%30)*.03}s" data-id="${p.id}">${thumb(p)}${p.kind==='video'?'<i class="vb">▶ Video</i>':''}${p.fav?FAV:''}<div class="ck">${I.check}</div></div>`).join('')}</div>`).join('');
+    `<div class="tile ${S.sel.has(p.id)?'on':''}${S.anim?' pop':''}" style="--d:${(cnt++%30)*.03}s" data-id="${p.id}">${thumb(p)}${p.fav?FAV:''}<div class="ck">${I.check}</div></div>`).join('')}</div>`).join('');
 }
 function emptyHTML(){
   if(N&&!HAS_ACCESS)return `<div class="empty">Photos needs permission to show your gallery.<br><button class="cta glass" data-act="ask">${I.lock} Allow access</button></div>`;
@@ -395,7 +381,7 @@ function renderScreen(keepScroll=true){
       const l=sorted(P.filter(a.f));
       return `<button class="album${S.anim?' pop':''}" style="--d:${k*.05}s" data-album="${a.id}"><div class="cv">${l[0]?thumb(l[0]):''}</div><b>${a.name}</b><span>${l.length}</span></button>`}).join('')+'</div>';
   }else{
-    const chips=[['fav','♥ Favourites'],['videos','Videos'],['camera','Camera'],['shots','Screenshots']];
+    const chips=[['fav','♥ Favourites'],['camera','Camera'],['shots','Screenshots']];
     html=`<div class="sbox glass">${I.sea}<input id="q" placeholder="Search photos: name, album, date…" value="${S.q.replace(/"/g,'&quot;')}" autocomplete="off"></div>
     <div class="chips">${chips.map(([k,n])=>`<button class="chip glass ${S.chip===k?'act':''}" data-chip="${k}">${n}</button>`).join('')}</div>
     <div id="res"></div>`;
@@ -453,8 +439,6 @@ scr.addEventListener('click',e=>{
     plop(.9);buzz();
     if(S.selMode)toggleSel(id);
     else{
-      const item=byId(id);
-      if(item&&item.kind==='video'&&playVideo(item))return;
       const list=current().map(p=>p.id);openViewer(list,list.indexOf(id))
     }
     return;
@@ -519,7 +503,7 @@ document.addEventListener('click',e=>{
 });
 $('#file').addEventListener('change',e=>{
   const fs=[...e.target.files];
-  fs.forEach(f=>{P.push({id:Date.now()+Math.floor(Math.random()*1e6),src:URL.createObjectURL(f),date:f.lastModified||Date.now(),fav:false,kind:(f.type||'').startsWith('video')?'video':'image',name:f.name,bucket:'Imported',local:true})});
+  fs.forEach(f=>{P.push({id:Date.now()+Math.floor(Math.random()*1e6),src:URL.createObjectURL(f),date:f.lastModified||Date.now(),fav:false,kind:'image',name:f.name,bucket:'Imported',local:true})});
   e.target.value='';if(fs.length){renderAll(true);toast(fs.length+' photo'+(fs.length>1?'s':'')+' added')}
 });
 
@@ -599,8 +583,6 @@ function openViewer(list,i){
     if(!st)return;const s=st;st=null;const dt=Date.now()-s.t;
     track.style.transition='transform .5s cubic-bezier(.25,1.4,.45,1)';
     if(!s.mode){
-      const cvid=$('.slide[data-c] video',el);if(cvid){cvid.paused?cvid.play():cvid.pause();return}
-      const cp=pid();if(cp&&cp.kind==='video'&&!cp.local&&playVideo(cp))return;
       const now=Date.now();
       if(now-V.last<320){V.zoom=V.zoom>1?1:2.4;V.tx=V.ty=0;applyZ(true);plop(.8)}
       V.last=now;return;
@@ -626,7 +608,6 @@ function openViewer(list,i){
       case 'info':openInfo(p);break;
       case 'fav':setFavs([p.id],!p.fav);build(true);break;
       case 'share':share([p.id]);break;
-      case 'play':playVideo(p);break;
       case 'del':{
         trash([p.id]);undoIds=[p.id];
         V.list.splice(V.i,1);
@@ -647,17 +628,8 @@ function build(keepTrack){
       const id=V.list[V.i+k];const p=byId(id);
       if(!p)return '';
       const src=p.local?p.src:fullSrc(p);
-      let inner;
-      if(p.kind==='video'){
-        inner = p.local
-          ? `<video src="${src}" playsinline loop controls></video>`
-          : `<img class="vposter" src="${thumbSrc(p)}" alt=""><button class="vplay" data-v="play">${I.play}</button>`;
-      }else{
-        inner = `<img src="${src}" alt="">`;
-      }
-      return `<div class="slide" ${k===0?'data-c':''} style="left:${k*100}%">${inner}</div>`;
+      return `<div class="slide" ${k===0?'data-c':''} style="left:${k*100}%"><img src="${src}" alt=""></div>`;
     }).join('');
-    const cv=$('.slide[data-c] video',el);if(cv){cv.play().catch(()=>{cv.muted=true;cv.play().catch(()=>{})})}
   }
   const p=pid();
   $('.mid b',el).textContent=fmtDay(p.date);$('.mid span',el).textContent=fmtTime(p.date);
