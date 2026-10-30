@@ -730,6 +730,23 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public void playVideo(long id) {
+            final long vid = id;
+            runOnUiThread(new Runnable() {
+                public void run() {
+                    try {
+                        Intent i = new Intent(MainActivity.this, PlayerActivity.class);
+                        i.setData(uriFor(vid, true));
+                        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                        startActivity(i);
+                    } catch (Exception e) {
+                        Log.w(TAG, "playVideo", e);
+                    }
+                }
+            });
+        }
+
+        @JavascriptInterface
         public void pick() {
             runOnUiThread(new Runnable() {
                 public void run() {
