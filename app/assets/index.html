@@ -166,6 +166,9 @@ svg{stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-l
 .tile video{transition:transform .35s cubic-bezier(.3,1.6,.5,1),border-radius .3s}
 .tile .vb{position:absolute;right:6px;bottom:5px;font-style:normal;font-size:10px;color:#fff;background:rgba(0,0,0,.5);padding:2px 7px;border-radius:10px}
 .slide video{max-width:100%;max-height:100%;display:block;pointer-events:none;border-radius:4px}
+.vplay{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:78px;height:78px;border-radius:50%;display:grid;place-items:center;color:#fff;background:rgba(0,0,0,.42);border:1.6px solid rgba(255,255,255,.75);box-shadow:0 10px 30px rgba(0,0,0,.45)}
+.vplay svg{width:32px;height:32px;margin-left:4px}
+.vposter{max-width:100%;max-height:100%;object-fit:contain;border-radius:4px;opacity:.92}
 </style>
 </head>
 <body>
@@ -202,6 +205,7 @@ const I={
  info:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.1"/></svg>',
  restore:'<svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 3-6.2M4 4v4h4"/></svg>',
  check:'<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+ play:'<svg viewBox="0 0 24 24" style="fill:currentColor;stroke:none"><path d="M8 5.2v13.6L19 12z"/></svg>',
  lock:'<svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>'
 };
 const FAV='<svg class="fv" viewBox="0 0 24 24" style="stroke:none"><path d="M12 20s-7.5-4.6-9-9.3C2 7.5 4 5 6.8 5c1.9 0 3.5 1 5.2 3 1.7-2 3.3-3 5.2-3C20 5 22 7.5 21 10.7 19.5 15.4 12 20 12 20z"/></svg>';
@@ -283,6 +287,11 @@ let HAS_ACCESS=!!META.access, LOADED=false;
 const thumbSrc=p=>`/thumb/${p.kind==='video'?'v':'i'}/${p.id}`;
 const fullSrc=p=>`/media/${p.kind==='video'?'v':'i'}/${p.id}`;
 const isCam=p=>/camera|dcim/i.test(p.bucket||'');
+function playVideo(p){
+  if(!p)return false;
+  if(N&&N.playVideo){try{N.playVideo(p.id);return true}catch(e){}}
+  return false;
+}
 const isShot=p=>/screenshot|screen.?shot/i.test((p.bucket||'')+' '+(p.name||''));
 const byId=id=>P.find(p=>p.id===id);
 
@@ -443,7 +452,11 @@ scr.addEventListener('click',e=>{
     const id=+t.dataset.id;
     plop(.9);buzz();
     if(S.selMode)toggleSel(id);
-    else{const list=current().map(p=>p.id);openViewer(list,list.indexOf(id))}
+    else{
+      const item=byId(id);
+      if(item&&item.kind==='video'&&playVideo(item))return;
+      const list=current().map(p=>p.id);openViewer(list,list.indexOf(id))
+    }
     return;
   }
   const al=e.target.closest('[data-album]'); if(al){go('albums',al.dataset.album);return}
@@ -587,6 +600,7 @@ function openViewer(list,i){
     track.style.transition='transform .5s cubic-bezier(.25,1.4,.45,1)';
     if(!s.mode){
       const cvid=$('.slide[data-c] video',el);if(cvid){cvid.paused?cvid.play():cvid.pause();return}
+      const cp=pid();if(cp&&cp.kind==='video'&&!cp.local&&playVideo(cp))return;
       const now=Date.now();
       if(now-V.last<320){V.zoom=V.zoom>1?1:2.4;V.tx=V.ty=0;applyZ(true);plop(.8)}
       V.last=now;return;
@@ -612,6 +626,7 @@ function openViewer(list,i){
       case 'info':openInfo(p);break;
       case 'fav':setFavs([p.id],!p.fav);build(true);break;
       case 'share':share([p.id]);break;
+      case 'play':playVideo(p);break;
       case 'del':{
         trash([p.id]);undoIds=[p.id];
         V.list.splice(V.i,1);
@@ -632,7 +647,15 @@ function build(keepTrack){
       const id=V.list[V.i+k];const p=byId(id);
       if(!p)return '';
       const src=p.local?p.src:fullSrc(p);
-      return `<div class="slide" ${k===0?'data-c':''} style="left:${k*100}%">${p.kind==='video'?`<video src="${src}" playsinline loop preload="metadata"${k===0?'':' muted'}></video>`:`<img src="${src}" alt="">`}</div>`;
+      let inner;
+      if(p.kind==='video'){
+        inner = p.local
+          ? `<video src="${src}" playsinline loop controls></video>`
+          : `<img class="vposter" src="${thumbSrc(p)}" alt=""><button class="vplay" data-v="play">${I.play}</button>`;
+      }else{
+        inner = `<img src="${src}" alt="">`;
+      }
+      return `<div class="slide" ${k===0?'data-c':''} style="left:${k*100}%">${inner}</div>`;
     }).join('');
     const cv=$('.slide[data-c] video',el);if(cv){cv.play().catch(()=>{cv.muted=true;cv.play().catch(()=>{})})}
   }
