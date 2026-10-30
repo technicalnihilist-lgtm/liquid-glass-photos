@@ -12,6 +12,8 @@ A real, installable Android gallery app — the liquid-glass UI from the origina
 
 **[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.0.1, 106 KB, signed, min Android 7.0 (API 24), target API 34.
 
+Or download it from the [v1.0.1 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
 ## What works
