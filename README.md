@@ -10,7 +10,7 @@ A real, installable Android gallery app — the liquid-glass UI from the origina
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — 106 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.0.1, 106 KB, signed, min Android 7.0 (API 24), target API 34.
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -77,6 +77,16 @@ docs/screenshots/                           screenshots
 ## About the screenshots
 
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
+
+## Changelog
+
+### 1.0.1
+- Returning to the app now refreshes the library, so photos taken in another app show up (throttled so it does not re-query on every resume).
+- Opening the keyboard scrolls the search field into view instead of leaving it hidden behind it.
+- Media streams release their file descriptors reliably.
+
+### 1.0.0
+- First release: native MediaStore gallery, albums, viewer with zoom, selection, share, trash + system delete, picker import, liquid-glass settings.
 
 ## Licence
 
