@@ -169,8 +169,8 @@ for i in range(44):
     im.save(f"{IMG}/{idx}.jpg", quality=88)
     dt = now - datetime.timedelta(days=i // 5, hours=(i % 5) * 3, minutes=i * 3)
     items.append({
-        "id": idx, "v": 1 if i in (11, 26) else 0, "n": name, "b": bucket,
-        "m": "video/mp4" if i in (11, 26) else "image/jpeg",
+        "id": idx, "v": 0, "n": name, "b": bucket,
+        "m": "image/jpeg",
         "d": int(dt.timestamp() * 1000), "s": 1_900_000 + i * 91_337,
         "w": w, "h": h,
     })
@@ -188,8 +188,7 @@ stub = """<script>
     requestAccess(){},
     photos(){ return JSON.stringify({count:ITEMS.length,items:ITEMS}); },
     favs(){ return JSON.stringify(FAVS); },
-    setFav(){}, share(){}, delete(){}, pick(){}, theme(){}, info(){},
-    playVideo(id){ (window.__played = window.__played || []).push(id); }
+    setFav(){}, share(){}, delete(){}, pick(){}, theme(){}, info(){}
   };
 })();
 </script>
@@ -203,11 +202,7 @@ setTimeout(function(){
   if(SHOT==='albums') click('[data-tab="albums"]');
   else if(SHOT==='search') click('[data-tab="search"]');
   else if(SHOT==='viewer'){ const t=q('.tile'); if(t) t.click(); }
-  else if(SHOT==='video'){
-    const list=current().map(function(p){return p.id});
-    const i=current().findIndex(function(p){return p.kind==='video'});
-    if(i>=0) openViewer(list,i);
-  }
+
   else if(SHOT==='select'){
     click('[data-act="startsel"]');
     setTimeout(function(){ document.querySelectorAll('.tile').forEach(function(t,i){ if(i<4) t.click(); }); },250);
