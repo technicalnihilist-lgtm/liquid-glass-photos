@@ -1,6 +1,6 @@
 # Liquid Glass Photos
 
-A real, installable Android gallery app — the liquid-glass UI from the original single-file HTML, wrapped in a native Android shell that reads **your actual phone gallery**. No demo photos, no mock data: on first launch it asks for photo permission and then shows the images and videos that are really on the device.
+A real, installable Android **photos** app — the liquid-glass UI from the original single-file HTML, wrapped in a native Android shell that reads **your actual phone photo library**. No demo photos, no mock data: on first launch it asks for photo permission and then shows the images that are really on the device. Photos only - video support is deliberately not included.
 
 <p align="center">
   <img src="docs/screenshots/01-library.jpg" width="240" alt="Library">
@@ -8,28 +8,26 @@ A real, installable Android gallery app — the liquid-glass UI from the origina
   <img src="docs/screenshots/05-viewer.jpg" width="240" alt="Viewer">
 </p>
 <p align="center">
-  <img src="docs/screenshots/08-video.jpg" width="240" alt="Video">
   <img src="docs/screenshots/04-search.jpg" width="240" alt="Search">
 </p>
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.0.3, 110 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.0.4, 104 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.0.3 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.0.4 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
 ## What works
 
-- **Real gallery** — reads images and videos through Android's `MediaStore`, newest first, grouped by day (Today / Yesterday / date), like Google Photos.
-- **Albums** — Recents, Favourites, Camera, Screenshots, Videos, Trash, with live counts and cover thumbnails.
+- **Real gallery** — reads images through Android's `MediaStore`, newest first, grouped by day (Today / Yesterday / date), like Google Photos.
+- **Albums** — Recents, Favourites, Camera, Screenshots, Trash, with live counts and cover thumbnails.
 - **Viewer** — swipe between items, double-tap to zoom, drag to pan, swipe down to close.
-- **Video** — videos play edge-to-edge in a full-screen native player with the standard Android scrubber, pause/resume and seeking. Playback fills the screen with centre-crop, so there are no black bars on any aspect ratio. If the device decoder refuses a file, it is handed to the phone's own video player instead of failing.
 - **Selection** — long-press or "Select", then favourite, share, or delete a batch.
 - **Share** — real Android share sheet via `ACTION_SEND_MULTIPLE` with content URIs.
 - **Delete** — first moves to the app's Trash (undoable), then "Delete" in Trash calls the Android 11+ system delete confirmation, which removes the file from the device for real.
-- **Add** — system file picker; selected images/videos are copied into your gallery (`Pictures/LiquidGlass`).
+- **Add** — system image picker; selected photos are copied into your gallery (`Pictures/LiquidGlass`).
 - **Liquid glass settings** — transparency, blur, grid size (1–6 columns, also pinch the grid), water sound + volume, bounce, haptics, dark/light theme. All persisted.
 - **Haptics and sound** — real `VIBRATE` and a Web Audio "plop" on every tap.
 - **Back button** — closes the viewer, leaves an album, or exits, in that order.
@@ -41,19 +39,18 @@ The UI is the original HTML/CSS/JS, unchanged in look and behaviour. Everything 
 | Original HTML | This app |
 | --- | --- |
 | 48 canvas-generated demo photos | `MediaStore` query for real device media |
-| `p.src` data URLs | `/thumb/i/<id>`, `/media/v/<id>` served by the app |
+| `p.src` data URLs | `/thumb/<id>`, `/media/<id>` served by the app |
 | fake delete (flag) | app Trash, then Android system delete request |
 | `navigator.share` on blobs | native `ACTION_SEND_MULTIPLE` |
 | `<input type=file>` | `ACTION_OPEN_DOCUMENT` + copy into MediaStore |
 | favourites in memory | `SharedPreferences` |
-| `<video>` element | native full-screen player (`PlayerActivity`) |
 
-WebView's media player fetches `<video>` sources directly and **does not** route them through `shouldInterceptRequest`, so a video served from the app's private origin can never play inside the WebView. That is why playback moved to `PlayerActivity` (a `VideoView` + `MediaController` on the MediaStore `content://` URI, which the platform decoder can open natively). Images are unaffected — `<img>` requests do go through the interceptor.
+The app is photos-only: only `MediaStore.Images` is queried, and `READ_MEDIA_VIDEO` is not requested in the manifest.
 
 `MainActivity` hosts a `WebView` and serves the app from a private origin (`https://app.local/`) that it intercepts in `shouldInterceptRequest`. That handler does the real work:
 
-- `/thumb/i/<id>` and `/thumb/v/<id>` — decodes a downscaled JPEG (images via `BitmapFactory` with `inSampleSize`, videos via `MediaMetadataRetriever`), cached in memory, so a 50 MP library scrolls smoothly.
-- `/media/i/<id>` and `/media/v/<id>` — streams the original bytes with `Content-Length` and full HTTP `Range` / `206 Partial Content` support, which is what makes video seeking work.
+- `/thumb/<id>` — decodes a downscaled JPEG with `BitmapFactory` and `inSampleSize`, cached in memory, so a 50 MP library scrolls smoothly.
+- `/media/<id>` — streams the original image bytes with `Content-Length` and HTTP `Range` / `206 Partial Content` support.
 
 No third-party libraries. No Gradle. No AndroidX. Just the Android framework, one Java file, and the original HTML.
 
@@ -76,7 +73,6 @@ Icons are generated by `tools/make_icons.py` (Pillow) into `app/res/`, so they a
 ```
 app/AndroidManifest.xml                     permissions, activity, theme
 app/java/com/liquidglass/photos/MainActivity.java   WebView shell + MediaStore bridge (~900 lines)
-app/java/com/liquidglass/photos/PlayerActivity.java native full-screen video player
 app/assets/index.html                       the entire UI (liquid glass)
 app/res/                                    strings, colours, theme, adaptive icon
 build.sh                                    full APK pipeline without Gradle
@@ -90,6 +86,10 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.0.4
+- **Photos only.** Video support removed completely: only `MediaStore.Images` is queried, the `READ_MEDIA_VIDEO` permission is gone, the native video player and the `Videos` album are deleted, and the picker accepts images only.
+- Smaller APK and a shorter permission list - the app asks for photo access only.
 
 ### 1.0.3
 - **Full-screen video with no black bars.** The player now measures the surface to the centre-cropped video size and tells the decoder to scale-to-fit-with-cropping, so 16:9, 4:3, vertical and square clips all fill the display edge-to-edge instead of being letterboxed.
