@@ -14,9 +14,9 @@ A real, installable Android gallery app — the liquid-glass UI from the origina
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.0.2, 110 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.0.3, 110 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.0.2 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.0.3 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -25,7 +25,7 @@ Install it on a phone (enable "install unknown apps" for your file manager), the
 - **Real gallery** — reads images and videos through Android's `MediaStore`, newest first, grouped by day (Today / Yesterday / date), like Google Photos.
 - **Albums** — Recents, Favourites, Camera, Screenshots, Videos, Trash, with live counts and cover thumbnails.
 - **Viewer** — swipe between items, double-tap to zoom, drag to pan, swipe down to close.
-- **Video** — videos play in a full-screen native player with the standard Android scrubber, pause/resume and seeking. If the device decoder refuses a file, it is handed to the phone's own video player instead of failing.
+- **Video** — videos play edge-to-edge in a full-screen native player with the standard Android scrubber, pause/resume and seeking. Playback fills the screen with centre-crop, so there are no black bars on any aspect ratio. If the device decoder refuses a file, it is handed to the phone's own video player instead of failing.
 - **Selection** — long-press or "Select", then favourite, share, or delete a batch.
 - **Share** — real Android share sheet via `ACTION_SEND_MULTIPLE` with content URIs.
 - **Delete** — first moves to the app's Trash (undoable), then "Delete" in Trash calls the Android 11+ system delete confirmation, which removes the file from the device for real.
@@ -90,6 +90,10 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.0.3
+- **Full-screen video with no black bars.** The player now measures the surface to the centre-cropped video size and tells the decoder to scale-to-fit-with-cropping, so 16:9, 4:3, vertical and square clips all fill the display edge-to-edge instead of being letterboxed.
+- The playback scrubber is anchored to the window rather than the video surface, so it stays correctly placed at the bottom of the screen.
 
 ### 1.0.2
 - **Fixed: videos would not play.** WebView never fetched `<video>` sources through the app's request interceptor, so playback now happens in a native full-screen player (`VideoView` + `MediaController`) with seek, pause/resume and an automatic fallback to the phone's own player.
