@@ -15,7 +15,6 @@ import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
-import android.media.MediaMetadataRetriever;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -69,7 +68,6 @@ public class MainActivity extends Activity {
 
     private final Map<Long, String> mimeCache = Collections.synchronizedMap(new HashMap<Long, String>());
     private final Map<Long, Long> sizeCache = Collections.synchronizedMap(new HashMap<Long, Long>());
-    private final Map<Long, String> kindCache = Collections.synchronizedMap(new HashMap<Long, String>());
 
     // tiny in-memory thumbnail cache (bytes)
     private final LinkedHashMap<Long, byte[]> thumbCache = new LinkedHashMap<Long, byte[]>(64, 0.75f, true) {
@@ -203,12 +201,10 @@ public class MainActivity extends Activity {
     private String[] neededPerms() {
         if (Build.VERSION.SDK_INT >= 34) {
             return new String[]{Manifest.permission.READ_MEDIA_IMAGES,
-                    Manifest.permission.READ_MEDIA_VIDEO,
                     "android.permission.READ_MEDIA_VISUAL_USER_SELECTED"};
         }
         if (Build.VERSION.SDK_INT >= 33) {
-            return new String[]{Manifest.permission.READ_MEDIA_IMAGES,
-                    Manifest.permission.READ_MEDIA_VIDEO};
+            return new String[]{Manifest.permission.READ_MEDIA_IMAGES};
         }
         return new String[]{Manifest.permission.READ_EXTERNAL_STORAGE};
     }
@@ -220,12 +216,10 @@ public class MainActivity extends Activity {
     private boolean hasAccess() {
         if (Build.VERSION.SDK_INT >= 34) {
             return granted(Manifest.permission.READ_MEDIA_IMAGES)
-                    || granted("android.permission.READ_MEDIA_VISUAL_USER_SELECTED")
-                    || granted(Manifest.permission.READ_MEDIA_VIDEO);
+                    || granted("android.permission.READ_MEDIA_VISUAL_USER_SELECTED");
         }
         if (Build.VERSION.SDK_INT >= 33) {
-            return granted(Manifest.permission.READ_MEDIA_IMAGES)
-                    || granted(Manifest.permission.READ_MEDIA_VIDEO);
+            return granted(Manifest.permission.READ_MEDIA_IMAGES);
         }
         return granted(Manifest.permission.READ_EXTERNAL_STORAGE);
     }
@@ -245,7 +239,6 @@ public class MainActivity extends Activity {
 
     private static class Item {
         long id;
-        boolean video;
         String name, bucket, mime;
         long date, size;
         int w, h;
@@ -254,8 +247,7 @@ public class MainActivity extends Activity {
     private List<Item> queryMedia() {
         List<Item> out = new ArrayList<>();
         if (!hasAccess()) return out;
-        queryOne(out, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, false);
-        queryOne(out, MediaStore.Video.Media.EXTERNAL_CONTENT_URI, true);
+        queryOne(out, MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
         Collections.sort(out, new Comparator<Item>() {
             public int compare(Item a, Item b) {
                 return Long.compare(b.date, a.date);
@@ -264,7 +256,7 @@ public class MainActivity extends Activity {
         return out;
     }
 
-    private void queryOne(List<Item> out, Uri base, boolean video) {
+    private void queryOne(List<Item> out, Uri base) {
         String[] proj = {
                 MediaStore.MediaColumns._ID,
                 MediaStore.MediaColumns.DISPLAY_NAME,
@@ -291,19 +283,16 @@ public class MainActivity extends Activity {
             while (c.moveToNext() && out.size() < 6000) {
                 Item it = new Item();
                 it.id = c.getLong(iId);
-                it.video = video;
                 it.name = iName >= 0 && !c.isNull(iName) ? c.getString(iName) : "IMG_" + it.id;
                 it.date = (iDate >= 0 && !c.isNull(iDate) ? c.getLong(iDate) : 0L) * 1000L;
                 it.size = iSize >= 0 && !c.isNull(iSize) ? c.getLong(iSize) : 0L;
-                it.mime = iMime >= 0 && !c.isNull(iMime) ? c.getString(iMime)
-                        : (video ? "video/mp4" : "image/jpeg");
+                it.mime = iMime >= 0 && !c.isNull(iMime) ? c.getString(iMime) : "image/jpeg";
                 it.w = iW >= 0 && !c.isNull(iW) ? c.getInt(iW) : 0;
                 it.h = iH >= 0 && !c.isNull(iH) ? c.getInt(iH) : 0;
                 it.bucket = iB >= 0 && !c.isNull(iB) ? c.getString(iB) : "";
                 out.add(it);
                 mimeCache.put(it.id, it.mime);
                 sizeCache.put(it.id, it.size);
-                kindCache.put(it.id, video ? "v" : "i");
             }
         } catch (Exception e) {
             Log.w(TAG, "query failed", e);
@@ -319,7 +308,7 @@ public class MainActivity extends Activity {
             Item it = list.get(i);
             if (i > 0) sb.append(',');
             sb.append("{\"id\":").append(it.id)
-                    .append(",\"v\":").append(it.video ? 1 : 0)
+                    .append(",\"v\":0")
                     .append(",\"n\":").append(q(it.name))
                     .append(",\"b\":").append(q(it.bucket))
                     .append(",\"m\":").append(q(it.mime))
@@ -352,50 +341,36 @@ public class MainActivity extends Activity {
         return sb.append('"').toString();
     }
 
-    private Uri uriFor(long id, boolean video) {
-        Uri base = video ? MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-                : MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
-        return ContentUris.withAppendedId(base, id);
+    private Uri uriFor(long id) {
+        return ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id);
     }
 
     /* ------------------------------------------------------------------ */
     /* thumbnails                                                         */
     /* ------------------------------------------------------------------ */
 
-    private byte[] thumbnail(long id, boolean video) {
-        long key = video ? -id : id;
+    private byte[] thumbnail(long id) {
+        long key = id;
         synchronized (thumbCache) {
             byte[] hit = thumbCache.get(key);
             if (hit != null) return hit;
         }
         Bitmap bmp = null;
         try {
-            Uri uri = uriFor(id, video);
-            if (video) {
-                MediaMetadataRetriever r = new MediaMetadataRetriever();
-                try {
-                    r.setDataSource(this, uri);
-                    bmp = r.getFrameAtTime(1_000_000L,
-                            MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
-                    if (bmp == null) bmp = r.getFrameAtTime();
-                } finally {
-                    try { r.release(); } catch (Exception ignored) {}
-                }
-            } else {
-                BitmapFactory.Options bounds = new BitmapFactory.Options();
-                bounds.inJustDecodeBounds = true;
-                InputStream in1 = getContentResolver().openInputStream(uri);
-                try { BitmapFactory.decodeStream(in1, null, bounds); } finally { close(in1); }
-                int target = 420;
-                int sample = 1;
-                int maxDim = Math.max(bounds.outWidth, bounds.outHeight);
-                while (maxDim / (sample * 2) >= target) sample *= 2;
-                BitmapFactory.Options o = new BitmapFactory.Options();
-                o.inSampleSize = sample;
-                o.inPreferredConfig = Bitmap.Config.RGB_565;
-                InputStream in2 = getContentResolver().openInputStream(uri);
-                try { bmp = BitmapFactory.decodeStream(in2, null, o); } finally { close(in2); }
-            }
+            Uri uri = uriFor(id);
+            BitmapFactory.Options bounds = new BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            InputStream in1 = getContentResolver().openInputStream(uri);
+            try { BitmapFactory.decodeStream(in1, null, bounds); } finally { close(in1); }
+            int target = 420;
+            int sample = 1;
+            int maxDim = Math.max(bounds.outWidth, bounds.outHeight);
+            while (maxDim / (sample * 2) >= target) sample *= 2;
+            BitmapFactory.Options o = new BitmapFactory.Options();
+            o.inSampleSize = sample;
+            o.inPreferredConfig = Bitmap.Config.RGB_565;
+            InputStream in2 = getContentResolver().openInputStream(uri);
+            try { bmp = BitmapFactory.decodeStream(in2, null, o); } finally { close(in2); }
             if (bmp == null) return null;
             int max = 520;
             int wd = bmp.getWidth(), ht = bmp.getHeight();
@@ -436,9 +411,8 @@ public class MainActivity extends Activity {
             try {
                 if (path.startsWith("/thumb/")) {
                     String rest = path.substring(7);
-                    boolean video = rest.startsWith("v/");
-                    long id = Long.parseLong(rest.substring(2));
-                    byte[] bytes = thumbnail(id, video);
+                    long id = Long.parseLong(rest);
+                    byte[] bytes = thumbnail(id);
                     if (bytes == null) return notFound();
                     Map<String, String> h = new HashMap<>();
                     h.put("Content-Type", "image/jpeg");
@@ -449,9 +423,8 @@ public class MainActivity extends Activity {
                 }
                 if (path.startsWith("/media/")) {
                     String rest = path.substring(7);
-                    boolean video = rest.startsWith("v/");
-                    long id = Long.parseLong(rest.substring(2));
-                    return streamMedia(id, video, req);
+                    long id = Long.parseLong(rest);
+                    return streamMedia(id, req);
                 }
                 return asset(path);
             } catch (Exception e) {
@@ -502,11 +475,11 @@ public class MainActivity extends Activity {
         return new WebResourceResponse(mime, "utf-8", 200, "OK", h, in);
     }
 
-    private WebResourceResponse streamMedia(long id, boolean video, WebResourceRequest req) {
+    private WebResourceResponse streamMedia(long id, WebResourceRequest req) {
         try {
-            Uri uri = uriFor(id, video);
+            Uri uri = uriFor(id);
             String mime = mimeCache.get(id);
-            if (mime == null) mime = video ? "video/mp4" : "image/jpeg";
+            if (mime == null) mime = "image/jpeg";
 
             AssetFileDescriptor afd = getContentResolver().openAssetFileDescriptor(uri, "r");
             if (afd == null) return notFound();
@@ -678,9 +651,7 @@ public class MainActivity extends Activity {
                 JSONArray a = new JSONArray(idsJson);
                 ArrayList<Uri> uris = new ArrayList<>();
                 for (int i = 0; i < a.length(); i++) {
-                    long id = a.getLong(i);
-                    String k = kindCache.get(id);
-                    uris.add(uriFor(id, "v".equals(k)));
+                    uris.add(uriFor(a.getLong(i)));
                 }
                 if (uris.isEmpty()) return;
                 Intent i;
@@ -707,8 +678,7 @@ public class MainActivity extends Activity {
                 JSONArray a = new JSONArray(idsJson);
                 ArrayList<Uri> uris = new ArrayList<>();
                 for (int i = 0; i < a.length(); i++) {
-                    long id = a.getLong(i);
-                    uris.add(uriFor(id, "v".equals(kindCache.get(id))));
+                    uris.add(uriFor(a.getLong(i)));
                 }
                 if (uris.isEmpty()) return;
                 if (Build.VERSION.SDK_INT >= 30) {
@@ -730,30 +700,13 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
-        public void playVideo(long id) {
-            final long vid = id;
-            runOnUiThread(new Runnable() {
-                public void run() {
-                    try {
-                        Intent i = new Intent(MainActivity.this, PlayerActivity.class);
-                        i.setData(uriFor(vid, true));
-                        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                        startActivity(i);
-                    } catch (Exception e) {
-                        Log.w(TAG, "playVideo", e);
-                    }
-                }
-            });
-        }
-
-        @JavascriptInterface
         public void pick() {
             runOnUiThread(new Runnable() {
                 public void run() {
                     Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
                     i.addCategory(Intent.CATEGORY_OPENABLE);
-                    i.setType("*/*");
-                    i.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"image/*", "video/*"});
+                    i.setType("image/*");
+                    i.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"image/*"});
                     i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
                     i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
                     try {
@@ -842,23 +795,19 @@ public class MainActivity extends Activity {
     private boolean importUri(Uri src) throws IOException {
         ContentResolver cr = getContentResolver();
         String type = cr.getType(src);
-        if (type == null) type = "image/jpeg";
-        boolean video = type.startsWith("video");
+        if (type == null || !type.startsWith("image/")) type = "image/jpeg";
         String stamp = new java.text.SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.US)
                 .format(new java.util.Date());
-        String name = "LGP_" + stamp + (video ? ".mp4" : ".jpg");
+        String name = "LGP_" + stamp + ".jpg";
 
         ContentValues v = new ContentValues();
         v.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
         v.put(MediaStore.MediaColumns.MIME_TYPE, type);
         if (Build.VERSION.SDK_INT >= 29) {
-            v.put(MediaStore.MediaColumns.RELATIVE_PATH,
-                    video ? "Movies/LiquidGlass" : "Pictures/LiquidGlass");
+            v.put(MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/LiquidGlass");
             v.put(MediaStore.MediaColumns.IS_PENDING, 1);
         }
-        Uri coll = video ? MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-                : MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
-        Uri dst = cr.insert(coll, v);
+        Uri dst = cr.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, v);
         if (dst == null) return false;
         InputStream in = cr.openInputStream(src);
         java.io.OutputStream out = cr.openOutputStream(dst);
