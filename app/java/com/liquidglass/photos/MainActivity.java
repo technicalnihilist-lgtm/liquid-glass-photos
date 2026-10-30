@@ -143,11 +143,21 @@ public class MainActivity extends Activity {
                     top = ins.getSystemWindowInsetTop();
                     bottom = ins.getSystemWindowInsetBottom();
                 }
+                int newIme = Math.max(0, ime - bottom);
+                boolean imeChanged = newIme != imeBottom;
                 insetTop = top;
                 insetBottom = bottom;
-                imeBottom = Math.max(0, ime - bottom);
+                imeBottom = newIme;
                 web.setPadding(0, 0, 0, imeBottom);
                 pushInsets();
+                if (imeChanged) {
+                    final String js = "window.__native&&window.__native.ime&&window.__native.ime(" + imeBottom + ")";
+                    runOnUiThread(new Runnable() {
+                        public void run() {
+                            if (web != null) web.evaluateJavascript(js, null);
+                        }
+                    });
+                }
                 return ins;
             }
         });
@@ -507,7 +517,17 @@ public class MainActivity extends Activity {
                 len = s != null ? s : -1;
             }
             ParcelFileDescriptor pfd = afd.getParcelFileDescriptor();
-            FileInputStream fis = new FileInputStream(pfd.getFileDescriptor());
+            final AssetFileDescriptor afdRef = afd;
+            FileInputStream fis = new FileInputStream(pfd.getFileDescriptor()) {
+                @Override
+                public void close() throws IOException {
+                    try {
+                        super.close();
+                    } finally {
+                        try { afdRef.close(); } catch (IOException ignored) {}
+                    }
+                }
+            };
             FileChannel ch = fis.getChannel();
 
             String range = null;
@@ -842,12 +862,18 @@ public class MainActivity extends Activity {
         return true;
     }
 
+    private long lastResumeRefresh = 0L;
+
     @Override
     protected void onResume() {
         super.onResume();
         if (web != null) {
             web.onResume();
-            if (hasAccess()) eval("window.__native&&window.__native.onResume&&window.__native.onResume()");
+            long now = System.currentTimeMillis();
+            if (hasAccess() && now - lastResumeRefresh > 2500L) {
+                lastResumeRefresh = now;
+                eval("window.__native&&window.__native.onResume&&window.__native.onResume()");
+            }
         }
     }
 
