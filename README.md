@@ -13,9 +13,9 @@ A real, installable Android **photos** app — the liquid-glass UI from the orig
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.0.4, 104 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.0.5, 106 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.0.4 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.0.5 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -28,7 +28,9 @@ Install it on a phone (enable "install unknown apps" for your file manager), the
 - **Share** — real Android share sheet via `ACTION_SEND_MULTIPLE` with content URIs.
 - **Delete** — first moves to the app's Trash (undoable), then "Delete" in Trash calls the Android 11+ system delete confirmation, which removes the file from the device for real.
 - **Add** — system image picker; selected photos are copied into your gallery (`Pictures/LiquidGlass`).
-- **Liquid glass settings** — transparency, blur, grid size (1–6 columns, also pinch the grid), water sound + volume, bounce, haptics, dark/light theme. All persisted.
+- **Depth effect** — the accelerometer drives three parallax layers: the wallpaper moves against the tilt, the photo grid moves a little, and the glass chrome (header buttons, tab bar, selection bar) moves the most and rotates in 3D around the touch point. Tilt the phone and the UI has real depth.
+- **4D motion** — when the phone is held still the layers keep drifting on a slow sine, and the glass chrome shimmers gently, so the screen never feels frozen.
+- **Liquid glass settings** — transparency, blur, grid size (1–6 columns, also pinch the grid), water sound + volume, bounce, haptics, depth effect, 4D motion, dark/light theme. All persisted.
 - **Haptics and sound** — real `VIBRATE` and a Web Audio "plop" on every tap.
 - **Back button** — closes the viewer, leaves an album, or exits, in that order.
 
@@ -44,6 +46,7 @@ The UI is the original HTML/CSS/JS, unchanged in look and behaviour. Everything 
 | `navigator.share` on blobs | native `ACTION_SEND_MULTIPLE` |
 | `<input type=file>` | `ACTION_OPEN_DOCUMENT` + copy into MediaStore |
 | favourites in memory | `SharedPreferences` |
+| (new) tilt parallax | `Sensor.TYPE_ACCELEROMETER` → `window.__native.tilt(x, y)` |
 
 The app is photos-only: only `MediaStore.Images` is queried, and `READ_MEDIA_VIDEO` is not requested in the manifest.
 
@@ -86,6 +89,13 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.0.5
+- **Depth effect.** A native accelerometer listener (baseline-calibrated, ~30 Hz, paused with the app) feeds tilt into CSS custom properties. Three layers move at different rates - wallpaper against the tilt, grid slightly with it, glass chrome most - and the chrome rotates in 3D (`perspective` + `rotateX/rotateY`), with the tab bar's shadow sliding under it.
+- **4D motion.** An idle drift on a slow sine keeps the depth layers alive when the phone is still, plus a gentle shimmer on the glass chrome.
+- Both are toggles in the settings sheet, persisted; turning depth off also stops the sensor listener to save battery.
+- Soft gradient scrims behind the header and tab bar, so glass labels stay readable over bright photos.
+- Tighter settings rows so the whole sheet - including Done/Reset - fits without scrolling.
 
 ### 1.0.4
 - **Photos only.** Video support removed completely: only `MediaStore.Images` is queried, the `READ_MEDIA_VIDEO` permission is gone, the native video player and the `Videos` album are deleted, and the picker accepts images only.
