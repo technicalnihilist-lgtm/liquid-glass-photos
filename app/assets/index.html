@@ -60,6 +60,7 @@ body.light .glass{border-color:rgba(255,255,255,.7)}
 .tile .fv{position:absolute;left:5px;bottom:4px;width:16px;height:16px;fill:#fff;filter:drop-shadow(0 1px 3px rgba(0,0,0,.6))}
 .tile .ck{position:absolute;top:6px;left:6px;width:24px;height:24px;border-radius:50%;border:2px solid #fff;background:rgba(0,0,0,.2);display:none;place-items:center}
 .sel .tile .ck{display:grid}
+.sel .tile.on{box-shadow:0 12px 26px rgba(0,0,0,.45)}
 .tile.on img{transform:scale(.82);border-radius:10px}
 .tile img{transition:transform .35s cubic-bezier(.3,1.6,.5,1),border-radius .3s}
 .tile.on .ck{background:var(--accent);border-color:var(--accent)}
@@ -158,13 +159,18 @@ body.light .vbg{background:#f4f4f8}
 svg{stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
 
 /* ---------- depth layers (tilt parallax) ---------- */
-.blobs{transition:transform .2s ease-out;transform:translate3d(calc(var(--tx) * -26px),calc(var(--ty) * -26px),0) scale(1.06)}
-#screen{transition:transform .2s ease-out;transform:translate3d(calc(var(--tx) * 7px),calc(var(--ty) * 7px),0)}
+.blobs{transition:transform .2s ease-out;transform:translate3d(calc(var(--tx) * -34px),calc(var(--ty) * -34px),0) scale(1.08)}
+#screen{transition:transform .2s ease-out;transform:perspective(1100px) rotateY(calc(var(--tx) * 2.6deg)) rotateX(calc(var(--ty) * -2.6deg)) translate3d(calc(var(--tx) * 9px),calc(var(--ty) * 9px),0)}
 .head{transition:transform .2s ease-out;transform:translate3d(calc(var(--tx) * 13px),calc(var(--ty) * 13px),0)}
-.tabs,.selbar{transition:transform .2s ease-out;transform:translate3d(calc(var(--tx) * 15px),calc(var(--ty) * 15px),0)}
-.tabs .pill,.tabs .round,.head .rbtn,.head .txtbtn,.vbar{
+.tabs{transition:transform .2s ease-out;transform:translate3d(calc(var(--tx) * 15px),calc(var(--ty) * 15px),0)}
+.selbar{transition:transform .2s ease-out;transform:translateX(-50%) translate3d(calc(var(--tx) * 15px),calc(var(--ty) * 15px),0)}
+.tabs .pill,.tabs .round,.head .rbtn,.head .txtbtn{
   transition:transform .2s ease-out;
-  transform:perspective(760px) rotateY(calc(var(--tx) * 9deg)) rotateX(calc(var(--ty) * -9deg))
+  transform:perspective(700px) rotateY(calc(var(--tx) * 11deg)) rotateX(calc(var(--ty) * -11deg))
+}
+.vbar{
+  transition:transform .2s ease-out;
+  transform:translateX(-50%) perspective(700px) rotateY(calc(var(--tx) * 11deg)) rotateX(calc(var(--ty) * -11deg))
 }
 .tabs .pill{
   box-shadow:inset 0 1.5px 1px rgba(255,255,255,.6),
@@ -411,7 +417,10 @@ function titleText(){
 }
 function renderHead(){
   const h=$('#head'); let l='',r='';
-  if(S.selMode){l=`<button class="rbtn glass" data-act="endsel">${I.close}</button>`;r=''}
+  if(S.selMode){
+    l=`<button class="rbtn glass" data-act="endsel">${I.close}</button>`;
+    r=`<button class="txtbtn glass" data-act="selall">All</button>`;
+  }
   else{
     if(S.tab==='albums'&&S.album)l=`<button class="rbtn glass" data-act="albback">${I.back}</button>`;
     r=`<button class="rbtn glass" data-act="add">${I.plus}</button><button class="rbtn glass" data-act="settings">${I.gear}</button>`;
@@ -480,23 +489,79 @@ function go(tab,album=null){
 
 /* ---------- selection + taps ---------- */
 let lpTimer=null,lpFired=false,lpStart=null;
+let drag=null, dragMoved=false, autoScroll=null;
 const scr=$('#screen');
+
+function selTitle(){
+  const ttl=$('.head .ttl');
+  if(ttl)ttl.textContent=S.sel.size?S.sel.size+' selected':'Select items';
+}
+function setSel(id,on){
+  if(on)S.sel.add(id);else S.sel.delete(id);
+  const t=$(`.tile[data-id="${id}"]`);
+  if(t)t.classList.toggle('on',on);
+  selTitle();
+}
+function toggleSel(id){ setSel(id,!S.sel.has(id)); renderHead(); }
+function selectAll(){
+  const list=current();
+  if(!list.length)return;
+  const allOn=list.every(p=>S.sel.has(p.id));
+  list.forEach(p=>{
+    if(allOn)S.sel.delete(p.id);else S.sel.add(p.id);
+    const t=$(`.tile[data-id="${p.id}"]`);if(t)t.classList.toggle('on',!allOn);
+  });
+  selTitle();plop(.9);buzz();
+  toast(allOn?'Selection cleared':list.length+' selected');
+}
+
 scr.addEventListener('pointerdown',e=>{
   const t=e.target.closest('.tile'); if(!t)return;
   lpFired=false; lpStart={x:e.clientX,y:e.clientY};
+  if(S.selMode){
+    drag={state:!S.sel.has(+t.dataset.id),x:e.clientX,y:e.clientY,id:+t.dataset.id};
+    dragMoved=false;
+    setSel(drag.id,drag.state);
+    try{scr.setPointerCapture(e.pointerId)}catch(err){}
+    return;
+  }
   lpTimer=setTimeout(()=>{lpFired=true;plop(1.2);buzz();if(!S.selMode){S.selMode=true;S.sel.clear();renderHead();renderTabs()}toggleSel(+t.dataset.id)},430);
 });
-scr.addEventListener('pointermove',e=>{if(lpTimer&&lpStart&&Math.hypot(e.clientX-lpStart.x,e.clientY-lpStart.y)>9){clearTimeout(lpTimer);lpTimer=null}});
-['pointerup','pointercancel','pointerleave'].forEach(n=>scr.addEventListener(n,()=>{clearTimeout(lpTimer);lpTimer=null}));
-function toggleSel(id){
-  S.sel.has(id)?S.sel.delete(id):S.sel.add(id);
-  const t=$(`.tile[data-id="${id}"]`);if(t)t.classList.toggle('on',S.sel.has(id));
-  renderHead();
+
+scr.addEventListener('pointermove',e=>{
+  if(lpTimer&&lpStart&&Math.hypot(e.clientX-lpStart.x,e.clientY-lpStart.y)>9){clearTimeout(lpTimer);lpTimer=null}
+  if(!drag)return;
+  if(Math.hypot(e.clientX-drag.x,e.clientY-drag.y)>6)dragMoved=true;
+  if(!dragMoved)return;
+  if(e.cancelable)e.preventDefault();
+  // swipe right to the screen edge -> everything in view gets selected
+  if(drag.state&&e.clientX>innerWidth*.94){
+    const list=current();
+    if(list.some(p=>!S.sel.has(p.id))){
+      list.forEach(p=>{S.sel.add(p.id);const t=$(`.tile[data-id="${p.id}"]`);if(t)t.classList.add('on')});
+      selTitle();plop(1.1);buzz();toast(list.length+' selected');
+    }
+    return;
+  }
+  const el=document.elementFromPoint(e.clientX,e.clientY);
+  const tile=el&&el.closest?el.closest('.tile'):null;
+  if(tile&&tile.dataset.id)setSel(+tile.dataset.id,drag.state);
+  clearInterval(autoScroll);autoScroll=null;
+  if(e.clientY<150){autoScroll=setInterval(()=>{scr.scrollTop-=14},16)}
+  else if(e.clientY>innerHeight-190){autoScroll=setInterval(()=>{scr.scrollTop+=14},16)}
+});
+
+function endDrag(){
+  clearTimeout(lpTimer);lpTimer=null;
+  clearInterval(autoScroll);autoScroll=null;
+  if(drag){drag=null;if(dragMoved)setTimeout(()=>{dragMoved=false},60)}
 }
+['pointerup','pointercancel','pointerleave'].forEach(n=>scr.addEventListener(n,endDrag));
 scr.addEventListener('click',e=>{
   const t=e.target.closest('.tile');
   if(t){
     if(lpFired){lpFired=false;return}
+    if(dragMoved){dragMoved=false;return}
     const id=+t.dataset.id;
     plop(.9);buzz();
     if(S.selMode)toggleSel(id);
@@ -548,6 +613,7 @@ document.addEventListener('click',e=>{
   else if(a==='add'){ if(N&&N.pick){try{N.pick()}catch(err){}} else $('#file').click(); }
   else if(a==='ask'){ if(N&&N.requestAccess){try{N.requestAccess()}catch(err){}} }
   else if(a==='startsel'){S.selMode=true;S.sel.clear();renderAll(true)}
+  else if(a==='selall'){selectAll()}
   else if(a==='endsel'){S.selMode=false;S.sel.clear();renderAll(true)}
   else if(a==='albback')go('albums');
   else if(a==='fav'){
