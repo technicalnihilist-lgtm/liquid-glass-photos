@@ -13,9 +13,9 @@ A real, installable Android **photos** app — the liquid-glass UI from the orig
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.0.5, 106 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.0.6, 106 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.0.5 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.0.6 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -24,7 +24,7 @@ Install it on a phone (enable "install unknown apps" for your file manager), the
 - **Real gallery** — reads images through Android's `MediaStore`, newest first, grouped by day (Today / Yesterday / date), like Google Photos.
 - **Albums** — Recents, Favourites, Camera, Screenshots, Trash, with live counts and cover thumbnails.
 - **Viewer** — swipe between items, double-tap to zoom, drag to pan, swipe down to close.
-- **Selection** — long-press or "Select", then favourite, share, or delete a batch.
+- **Selection** — long-press or tap "Select", then favourite, share or delete a batch. Press one photo and **drag across the grid** to select everything you pass over (drag over selected ones to deselect); it auto-scrolls at the top and bottom edges. **Swipe to the right edge** while dragging and every photo gets selected. The **All** button in the header toggles select-all.
 - **Share** — real Android share sheet via `ACTION_SEND_MULTIPLE` with content URIs.
 - **Delete** — first moves to the app's Trash (undoable), then "Delete" in Trash calls the Android 11+ system delete confirmation, which removes the file from the device for real.
 - **Add** — system image picker; selected photos are copied into your gallery (`Pictures/LiquidGlass`).
@@ -89,6 +89,13 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.0.6
+- **Drag to select.** In selection mode, press a photo and drag across the grid: every tile you pass is selected (or deselected, if you started on a selected one). The grid auto-scrolls when you drag to the top or bottom edge.
+- **Swipe right to select all.** Drag to the right edge of the screen and every photo in the current view is selected at once.
+- **All button** in the header while selecting - toggles select-all / clear.
+- **Deeper depth + parallax.** The photo plane itself now tilts in perspective with the device (`rotateX`/`rotateY`), the wallpaper parallaxes further against the tilt, and the glass chrome rotates harder - the layers read as separate depths instead of a flat sheet.
+- Fixed: the tilt transform was overriding `translateX(-50%)`, which pushed the selection bar and the viewer bar off-centre.
 
 ### 1.0.5
 - **Depth effect.** A native accelerometer listener (baseline-calibrated, ~30 Hz, paused with the app) feeds tilt into CSS custom properties. Three layers move at different rates - wallpaper against the tilt, grid slightly with it, glass chrome most - and the chrome rotates in 3D (`perspective` + `rotateX/rotateY`), with the tab bar's shadow sliding under it.
