@@ -11,6 +11,10 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.res.AssetFileDescriptor;
 import android.content.res.AssetManager;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -79,10 +83,68 @@ public class MainActivity extends Activity {
 
     private int insetTop = 0, insetBottom = 0, imeBottom = 0;
 
+    // ---- depth / 4D tilt ----
+    private SensorManager sensors;
+    private Sensor accel;
+    private boolean tiltOn = true;
+    private long lastTiltPush = 0L;
+    private float baseX = Float.NaN, baseY = Float.NaN;
+
+    private final SensorEventListener tiltListener = new SensorEventListener() {
+        @Override
+        public void onSensorChanged(SensorEvent e) {
+            long now = System.currentTimeMillis();
+            if (now - lastTiltPush < 33) return;
+            lastTiltPush = now;
+            float ax = e.values[0];
+            float ay = e.values[1];
+            // calibrate against how the phone is being held when depth is switched on
+            if (Float.isNaN(baseX)) {
+                baseX = ax;
+                baseY = ay;
+            }
+            float x = -(ax - baseX) / 4.2f;
+            float y = (ay - baseY) / 4.2f;
+            if (x > 1f) x = 1f;
+            if (x < -1f) x = -1f;
+            if (y > 1f) y = 1f;
+            if (y < -1f) y = -1f;
+            final String js = String.format(Locale.US,
+                    "window.__native&&window.__native.tilt&&window.__native.tilt(%.3f,%.3f)", x, y);
+            eval(js);
+        }
+
+        @Override
+        public void onAccuracyChanged(Sensor s, int a) {
+        }
+    };
+
+    private void startTilt() {
+        if (sensors == null) {
+            sensors = (SensorManager) getSystemService(SENSOR_SERVICE);
+            if (sensors != null) accel = sensors.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+        }
+        if (sensors != null && accel != null && tiltOn) {
+            baseX = Float.NaN;
+            baseY = Float.NaN;
+            sensors.registerListener(tiltListener, accel, SensorManager.SENSOR_DELAY_GAME);
+        }
+    }
+
+    private void stopTilt() {
+        if (sensors != null) {
+            try {
+                sensors.unregisterListener(tiltListener);
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         prefs = getSharedPreferences("lgp", MODE_PRIVATE);
+        tiltOn = prefs.getBoolean("tilt", true);
 
         Window w = getWindow();
         w.setStatusBarColor(Color.TRANSPARENT);
@@ -700,6 +762,18 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public void setTilt(boolean on) {
+            tiltOn = on;
+            prefs.edit().putBoolean("tilt", on).apply();
+            runOnUiThread(new Runnable() {
+                public void run() {
+                    if (tiltOn) startTilt();
+                    else stopTilt();
+                }
+            });
+        }
+
+        @JavascriptInterface
         public void pick() {
             runOnUiThread(new Runnable() {
                 public void run() {
@@ -833,6 +907,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        startTilt();
         if (web != null) {
             web.onResume();
             long now = System.currentTimeMillis();
@@ -846,6 +921,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onPause() {
         super.onPause();
+        stopTilt();
         if (web != null) web.onPause();
     }
 
