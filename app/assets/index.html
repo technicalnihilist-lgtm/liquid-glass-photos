@@ -11,6 +11,7 @@
   --tint:255,255,255; --txt:#fff; --sub:rgba(255,255,255,.62); --line:rgba(255,255,255,.14);
   --cols:3; --accent:#4da3ff;
   --sat:env(safe-area-inset-top,0px); --sab:env(safe-area-inset-bottom,0px);
+  --tx:0; --ty:0;
 }
 body.light{--txt:#111; --sub:rgba(0,0,0,.55); --line:rgba(0,0,0,.1); --tint:255,255,255}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;margin:0;padding:0}
@@ -92,7 +93,8 @@ body.light .spin{border-color:rgba(0,0,0,.15);border-top-color:#111}
 /* tab bar */
 .tabs{position:fixed;left:0;right:0;bottom:calc(var(--sab) + 14px);z-index:20;display:flex;justify-content:center;gap:12px;padding:0 16px}
 .tabs .pill{display:flex;padding:5px;border-radius:34px;position:relative}
-.tabs .pill button{position:relative;z-index:2;width:128px;height:56px;border-radius:30px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:11px;font-weight:600;color:var(--sub);transition:color .25s}
+.tabs .pill button{position:relative;z-index:2;width:128px;height:56px;border-radius:30px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:11px;font-weight:600;color:var(--sub);transition:color .25s;text-shadow:0 1px 4px rgba(0,0,0,.5)}
+.tabs svg{filter:drop-shadow(0 1px 3px rgba(0,0,0,.45))}
 .tabs .pill button.act,.tabs .round.act{color:var(--accent)}
 .tabs svg{width:24px;height:24px}
 .ind{position:absolute;z-index:1;top:5px;height:56px;border-radius:30px;background:rgba(var(--tint),.28);box-shadow:inset 0 1px 1px rgba(255,255,255,.6),0 4px 14px rgba(0,0,0,.2);transition:left .5s cubic-bezier(.3,1.5,.5,1),width .5s cubic-bezier(.3,1.5,.5,1)}
@@ -105,10 +107,10 @@ body.light .spin{border-color:rgba(0,0,0,.15);border-top-color:#111}
 /* sheet */
 .scrim{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.35);opacity:0;transition:opacity .3s}
 .scrim.in{opacity:1}
-.sheet{position:fixed;left:10px;right:10px;bottom:calc(var(--sab) + 10px);z-index:51;border-radius:34px;padding:20px 20px 24px;max-height:82vh;overflow-y:auto;transform:translateY(110%);transition:transform .55s cubic-bezier(.25,1.35,.45,1)}
+.sheet{position:fixed;left:10px;right:10px;bottom:calc(var(--sab) + 10px);z-index:51;border-radius:34px;padding:16px 18px 18px;max-height:84vh;overflow-y:auto;transform:translateY(110%);transition:transform .55s cubic-bezier(.25,1.35,.45,1)}
 .sheet.in{transform:none}
-.sheet h3{font-size:20px;margin-bottom:14px}
-.row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 0;border-top:1px solid var(--line)}
+.sheet h3{font-size:20px;margin-bottom:10px}
+.row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:9px 0;border-top:1px solid var(--line)}
 .row:first-of-type{border-top:0}
 .row label{font-weight:600;font-size:15px}
 .row small{display:block;color:var(--sub);font-weight:400;margin-top:2px}
@@ -155,6 +157,35 @@ body.light .vbg{background:#f4f4f8}
 .hint{position:fixed;bottom:calc(var(--sab) + 94px);left:0;right:0;text-align:center;font-size:12px;color:var(--sub);pointer-events:none;z-index:2}
 svg{stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
 
+/* ---------- depth layers (tilt parallax) ---------- */
+.blobs{transition:transform .2s ease-out;transform:translate3d(calc(var(--tx) * -26px),calc(var(--ty) * -26px),0) scale(1.06)}
+#screen{transition:transform .2s ease-out;transform:translate3d(calc(var(--tx) * 7px),calc(var(--ty) * 7px),0)}
+.head{transition:transform .2s ease-out;transform:translate3d(calc(var(--tx) * 13px),calc(var(--ty) * 13px),0)}
+.tabs,.selbar{transition:transform .2s ease-out;transform:translate3d(calc(var(--tx) * 15px),calc(var(--ty) * 15px),0)}
+.tabs .pill,.tabs .round,.head .rbtn,.head .txtbtn,.vbar{
+  transition:transform .2s ease-out;
+  transform:perspective(760px) rotateY(calc(var(--tx) * 9deg)) rotateX(calc(var(--ty) * -9deg))
+}
+.tabs .pill{
+  box-shadow:inset 0 1.5px 1px rgba(255,255,255,.6),
+             calc(var(--tx) * 14px) calc(var(--ty) * 14px + 10px) 28px rgba(0,0,0,.45)
+}
+/* 4D: slow shimmer while the screen is idle */
+body.d4 .tabs .pill,body.d4 .tabs .round,body.d4 .head .rbtn,body.d4 .head .txtbtn{
+  animation:idleShimmer 7s ease-in-out infinite alternate
+}
+@keyframes idleShimmer{
+  from{filter:brightness(1)}
+  to{filter:brightness(1.06)}
+}
+
+/* soft scrims so the glass chrome stays readable over bright photos */
+.fade{position:fixed;left:0;right:0;pointer-events:none;z-index:15}
+.fade.top{top:0;height:170px;background:linear-gradient(to bottom,rgba(6,6,18,.45),rgba(6,6,18,0))}
+.fade.bot{bottom:0;height:190px;background:linear-gradient(to top,rgba(6,6,18,.6),rgba(6,6,18,.24) 45%,rgba(6,6,18,0))}
+body.light .fade.top{background:linear-gradient(to bottom,rgba(255,255,255,.8),rgba(255,255,255,0))}
+body.light .fade.bot{background:linear-gradient(to top,rgba(255,255,255,.85),rgba(255,255,255,0))}
+
 /* entrance bounce */
 @keyframes popIn{0%{opacity:0;transform:scale(.55)}55%{opacity:1;transform:scale(1.09)}78%{transform:scale(.97)}100%{opacity:1;transform:scale(1)}}
 @keyframes appIn{0%{opacity:0;transform:scale(.84)}55%{opacity:1;transform:scale(1.03)}78%{transform:scale(.99)}100%{opacity:1;transform:none}}
@@ -167,6 +198,8 @@ svg{stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-l
 </head>
 <body>
 <div class="blobs"><i></i><i></i><i></i></div>
+<div class="fade top"></div>
+<div class="fade bot"></div>
 <div id="app">
   <div class="head" id="head"></div>
   <div id="screen"></div>
@@ -208,7 +241,7 @@ const N = window.AndroidNative || null;
 const META = (()=>{ try{ return N ? JSON.parse(N.meta()) : {}; }catch(e){ return {}; } })();
 
 /* ---------- settings ---------- */
-const DEF={clarity:78,blur:22,sound:true,vol:70,bounce:true,haptic:true,light:!!META.light,cols:3};
+const DEF={clarity:78,blur:22,sound:true,vol:70,bounce:true,haptic:true,light:!!META.light,cols:3,depth:true,motion:true};
 let ST=Object.assign({},DEF);
 try{Object.assign(ST,JSON.parse(localStorage.getItem('lgp')||'{}'))}catch(e){}
 function applySettings(){
@@ -217,8 +250,37 @@ function applySettings(){
   r.setProperty('--blur',ST.blur+'px');
   r.setProperty('--cols',ST.cols);
   document.body.classList.toggle('light',ST.light);
+  document.body.classList.toggle('d4',!!ST.motion);
   try{localStorage.setItem('lgp',JSON.stringify(ST))}catch(e){}
   if(N&&N.theme){try{N.theme(!!ST.light)}catch(e){}}
+  if(N&&N.setTilt){try{N.setTilt(!!ST.depth)}catch(e){}}
+  if(ST.motion&&!driftTimer)driftTimer=setInterval(paintTilt,60);
+  if(!ST.motion&&driftTimer){clearInterval(driftTimer);driftTimer=null}
+  paintTilt();
+}
+
+/* ---------- depth / 4D engine ---------- */
+let SENSOR={x:0,y:0}, DRIFT=0, driftTimer=null;
+function paintTilt(){
+  let x=ST.depth?SENSOR.x:0, y=ST.depth?SENSOR.y:0;
+  if(ST.motion&&!window.__still){
+    if(Math.abs(x)<.06&&Math.abs(y)<.06){
+      x+=Math.sin(DRIFT)*.20;
+      y+=Math.cos(DRIFT*.78)*.15;
+    }
+    DRIFT+=.05;
+  }
+  const r=document.documentElement.style;
+  r.setProperty('--tx',x.toFixed(4));
+  r.setProperty('--ty',y.toFixed(4));
+}
+if(!N){
+  // browser preview: use the pointer as a stand-in for device tilt
+  addEventListener('pointermove',e=>{
+    SENSOR.x=((e.clientX/innerWidth)-.5)*1.6;
+    SENSOR.y=((e.clientY/innerHeight)-.5)*1.6;
+    if(ST.depth)paintTilt();
+  });
 }
 
 /* ---------- water sound ---------- */
@@ -526,6 +588,8 @@ function openSettings(){
   <div class="row"><label style="flex:none;width:92px">Volume</label><div class="sl"><input type="range" id="s_vo" min="0" max="100" value="${ST.vol}"></div><span class="val" id="v_vo">${ST.vol}%</span></div>
   <div class="row"><label>Bounce effect</label><button class="sw ${ST.bounce?'on':''}" data-k="bounce"></button></div>
   <div class="row"><label>Vibration<small>Android haptics</small></label><button class="sw ${ST.haptic?'on':''}" data-k="haptic"></button></div>
+  <div class="row"><label>Depth effect<small>Tilt to look around</small></label><button class="sw ${ST.depth?'on':''}" data-k="depth"></button></div>
+  <div class="row"><label>4D motion<small>Idle drift</small></label><button class="sw ${ST.motion?'on':''}" data-k="motion"></button></div>
   <div class="row"><label>Theme</label><div class="seg"><button data-th="0" class="${ST.light?'':'act'}">Dark</button><button data-th="1" class="${ST.light?'act':''}">Light</button></div></div>
   <div class="btnrow"><button class="reset" id="rs">Reset</button><button style="background:var(--accent);color:#fff" id="dn">Done</button></div>`,
   (sh,close)=>{
@@ -647,6 +711,10 @@ function closeViewer(){
 
 /* ---------- native callbacks ---------- */
 window.__native={
+  tilt(x,y){
+    SENSOR.x=x;SENSOR.y=y;
+    if(ST.depth)paintTilt();
+  },
   insets(top,bottom){
     const r=document.documentElement.style;
     if(top!=null)r.setProperty('--sat',top+'px');
