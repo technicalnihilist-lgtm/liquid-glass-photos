@@ -180,6 +180,7 @@ html = open("/scratch/work/app/assets/index.html", encoding="utf-8").read()
 
 stub = """<script>
 (function(){
+  window.__still = 1;
   const ITEMS = %s;
   const FAVS = [2, 7, 19, 31, 38];
   window.AndroidNative = {
@@ -188,7 +189,8 @@ stub = """<script>
     requestAccess(){},
     photos(){ return JSON.stringify({count:ITEMS.length,items:ITEMS}); },
     favs(){ return JSON.stringify(FAVS); },
-    setFav(){}, share(){}, delete(){}, pick(){}, theme(){}, info(){}
+    setFav(){}, share(){}, delete(){}, pick(){}, theme(){}, info(){},
+    setTilt(){}
   };
 })();
 </script>
