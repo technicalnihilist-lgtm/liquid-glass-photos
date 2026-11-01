@@ -469,13 +469,22 @@ public class MainActivity extends Activity {
                 maxDim = Math.max(bounds.outWidth, bounds.outHeight);
             }
             while (maxDim > 0 && maxDim / (sample * 2) >= target) sample *= 2;
+            int max = 520;
             BitmapFactory.Options o = new BitmapFactory.Options();
             o.inSampleSize = sample;
             o.inPreferredConfig = Bitmap.Config.RGB_565;
+            /* Ask the decoder to land on the final size itself: with inDensity set to the
+               post-sample width and inTargetDensity to the cap, the scale happens inside
+               the decode and the full-size bitmap is never materialised. */
+            int decodedMax = maxDim > 0 ? Math.max(1, maxDim / sample) : 0;
+            if (decodedMax > max) {
+                o.inScaled = true;
+                o.inDensity = decodedMax;
+                o.inTargetDensity = max;
+            }
             InputStream in2 = getContentResolver().openInputStream(uri);
             try { bmp = BitmapFactory.decodeStream(in2, null, o); } finally { close(in2); }
             if (bmp == null) return null;
-            int max = 520;
             int wd = bmp.getWidth(), ht = bmp.getHeight();
             if (Math.max(wd, ht) > max) {
                 float f = max / (float) Math.max(wd, ht);
