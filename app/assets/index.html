@@ -442,13 +442,36 @@ function emptyHTML(){
   if(S.album==='trash')return `<div class="empty">Trash is empty.<br>Deleted photos stay here until you empty it.</div>`;
   return `<div class="empty">No photos here yet.<br>Tap + to add some from your phone.</div>`;
 }
+/* grid rendering: build into a DocumentFragment and only touch the DOM when the
+   markup actually differs; a selection-only change just flips .on in place */
+function fragOf(html){
+  const t=document.createElement('template');
+  t.innerHTML=html;
+  return t.content;
+}
+function gridKey(list){
+  let k=S.tab+'|'+(S.album||'')+'|'+list.length+'|';
+  for(let i=0;i<list.length;i++){const p=list[i];k+=p.id+(p.fav?'f':'')+p.date+','}
+  return k;
+}
+function paintSel(el){
+  const s=S.sel;
+  el.querySelectorAll('.tile').forEach(t=>{const on=s.has(+t.dataset.id);if(t.classList.contains('on')!==on)t.classList.toggle('on',on)});
+}
+let screenKey=null,resKey=null;
+function swapIn(el,html){
+  const f=fragOf(html);
+  while(el.firstChild)el.removeChild(el.firstChild);
+  el.appendChild(f);
+}
 function renderScreen(keepScroll=true){
   const sc=$('#screen'), y=keepScroll?sc.scrollTop:0;
   sc.classList.toggle('sel',S.selMode);
-  let html='';
+  let html='',key=null;
   if(S.tab==='library'||(S.tab==='albums'&&S.album)){
     const list=current();
-    html=list.length?tilesHTML(list):emptyHTML();
+    if(list.length){html=tilesHTML(list);key=gridKey(list)}
+    else{html=emptyHTML();key='e|'+S.tab+'|'+(S.album||'')+'|'+(N?(HAS_ACCESS?1:0):2)+'|'+(LOADED?1:0)}
   }else if(S.tab==='albums'){
     html='<div class="albums">'+ALB().map((a,k)=>{
       const l=sorted(P.filter(a.f));
@@ -459,13 +482,17 @@ function renderScreen(keepScroll=true){
     <div class="chips">${chips.map(([k,n])=>`<button class="chip glass ${S.chip===k?'act':''}" data-chip="${k}">${n}</button>`).join('')}</div>
     <div id="res"></div>`;
   }
-  sc.innerHTML=html;
+  if(!S.anim&&key!==null&&key===screenKey)paintSel(sc);
+  else{swapIn(sc,html);screenKey=key;resKey=null}
   if(S.tab==='search')renderResults();
   sc.scrollTop=y;S.anim=false;
 }
 function renderResults(){
   const list=current(),el=$('#res'); if(!el)return;
-  el.innerHTML=list.length?tilesHTML(list):`<div class="empty">${(S.q||S.chip)?'No matches found.':'Search by name, album or date.'}</div>`;
+  if(!list.length){swapIn(el,`<div class="empty">${(S.q||S.chip)?'No matches found.':'Search by name, album or date.'}</div>`);resKey=null;return}
+  const key=gridKey(list);
+  if(!S.anim&&key===resKey)paintSel(el);
+  else{swapIn(el,tilesHTML(list));resKey=key}
 }
 function renderTabs(){
   const sel=S.selMode;
