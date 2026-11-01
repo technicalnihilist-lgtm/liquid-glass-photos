@@ -73,13 +73,28 @@ public class MainActivity extends Activity {
     private final Map<Long, String> mimeCache = Collections.synchronizedMap(new HashMap<Long, String>());
     private final Map<Long, Long> sizeCache = Collections.synchronizedMap(new HashMap<Long, Long>());
 
-    // tiny in-memory thumbnail cache (bytes)
-    private final LinkedHashMap<Long, byte[]> thumbCache = new LinkedHashMap<Long, byte[]>(64, 0.75f, true) {
-        @Override
-        protected boolean removeEldestEntry(Map.Entry<Long, byte[]> eldest) {
-            return size() > 220;
+    // in-memory thumbnail cache, bounded by bytes rather than entry count
+    private static final long THUMB_CACHE_BYTES = 12L * 1024 * 1024;
+    private final LinkedHashMap<Long, byte[]> thumbCache =
+            new LinkedHashMap<Long, byte[]>(64, 0.75f, true);
+    private long thumbCacheBytes = 0L;
+
+    // id -> {width, height} straight from MediaStore, so a thumbnail needs one stream open
+    private final Map<Long, int[]> dimCache = Collections.synchronizedMap(new HashMap<Long, int[]>());
+
+    private void cacheThumb(long key, byte[] bytes) {
+        synchronized (thumbCache) {
+            byte[] old = thumbCache.put(key, bytes);
+            if (old != null) thumbCacheBytes -= old.length;
+            thumbCacheBytes += bytes.length;
+            java.util.Iterator<Map.Entry<Long, byte[]>> it = thumbCache.entrySet().iterator();
+            while (thumbCacheBytes > THUMB_CACHE_BYTES && it.hasNext()) {
+                Map.Entry<Long, byte[]> e = it.next();
+                thumbCacheBytes -= e.getValue().length;
+                it.remove();
+            }
         }
-    };
+    }
 
     private int insetTop = 0, insetBottom = 0, imeBottom = 0;
 
@@ -306,6 +321,25 @@ public class MainActivity extends Activity {
         int w, h;
     }
 
+    private List<Item> cachedMedia = null;
+    private long cachedMediaAt = 0L;
+    private static final long MEDIA_CACHE_MS = 1500L;
+
+    /** MediaStore is expensive; a resume right after a permission callback must not query twice. */
+    private List<Item> queryMediaCached() {
+        long now = System.currentTimeMillis();
+        if (cachedMedia != null && now - cachedMediaAt < MEDIA_CACHE_MS) return cachedMedia;
+        List<Item> list = queryMedia();
+        cachedMedia = list;
+        cachedMediaAt = now;
+        return list;
+    }
+
+    private void invalidateMediaCache() {
+        cachedMedia = null;
+        cachedMediaAt = 0L;
+    }
+
     private List<Item> queryMedia() {
         List<Item> out = new ArrayList<>();
         if (!hasAccess()) return out;
@@ -355,6 +389,7 @@ public class MainActivity extends Activity {
                 out.add(it);
                 mimeCache.put(it.id, it.mime);
                 sizeCache.put(it.id, it.size);
+                if (it.w > 0 && it.h > 0) dimCache.put(it.id, new int[]{it.w, it.h});
             }
         } catch (Exception e) {
             Log.w(TAG, "query failed", e);
@@ -420,14 +455,20 @@ public class MainActivity extends Activity {
         Bitmap bmp = null;
         try {
             Uri uri = uriFor(id);
-            BitmapFactory.Options bounds = new BitmapFactory.Options();
-            bounds.inJustDecodeBounds = true;
-            InputStream in1 = getContentResolver().openInputStream(uri);
-            try { BitmapFactory.decodeStream(in1, null, bounds); } finally { close(in1); }
             int target = 420;
             int sample = 1;
-            int maxDim = Math.max(bounds.outWidth, bounds.outHeight);
-            while (maxDim / (sample * 2) >= target) sample *= 2;
+            int maxDim = 0;
+            int[] dims = dimCache.get(id);
+            if (dims != null) {
+                maxDim = Math.max(dims[0], dims[1]);
+            } else {
+                BitmapFactory.Options bounds = new BitmapFactory.Options();
+                bounds.inJustDecodeBounds = true;
+                InputStream in1 = getContentResolver().openInputStream(uri);
+                try { BitmapFactory.decodeStream(in1, null, bounds); } finally { close(in1); }
+                maxDim = Math.max(bounds.outWidth, bounds.outHeight);
+            }
+            while (maxDim > 0 && maxDim / (sample * 2) >= target) sample *= 2;
             BitmapFactory.Options o = new BitmapFactory.Options();
             o.inSampleSize = sample;
             o.inPreferredConfig = Bitmap.Config.RGB_565;
@@ -446,7 +487,7 @@ public class MainActivity extends Activity {
             ByteArrayOutputStream bo = new ByteArrayOutputStream(24 * 1024);
             bmp.compress(Bitmap.CompressFormat.JPEG, 82, bo);
             byte[] bytes = bo.toByteArray();
-            synchronized (thumbCache) { thumbCache.put(key, bytes); }
+            cacheThumb(key, bytes);
             return bytes;
         } catch (Throwable t) {
             Log.w(TAG, "thumb fail " + id, t);
@@ -682,7 +723,7 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public String photos() {
-            return itemsJson(queryMedia());
+            return itemsJson(queryMediaCached());
         }
 
         @JavascriptInterface
@@ -743,6 +784,7 @@ public class MainActivity extends Activity {
                     uris.add(uriFor(a.getLong(i)));
                 }
                 if (uris.isEmpty()) return;
+                invalidateMediaCache();
                 if (Build.VERSION.SDK_INT >= 30) {
                     PendingIntent pi = MediaStore.createDeleteRequest(getContentResolver(), uris);
                     startIntentSenderForResult(pi.getIntentSender(), REQ_DEL, null, 0, 0, 0);
@@ -860,6 +902,7 @@ public class MainActivity extends Activity {
                             Log.w(TAG, "import failed", e);
                         }
                     }
+                    invalidateMediaCache();
                     eval("window.__native&&window.__native.onPicked&&window.__native.onPicked(" + ok + ")");
                 }
             }).start();
