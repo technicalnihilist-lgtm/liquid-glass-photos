@@ -13,9 +13,9 @@ A real, installable Android **photos** app — the liquid-glass UI from the orig
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.1.0, 110 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.1.1, 110 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.1.0 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.1.1 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -114,6 +114,14 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.1.1 — day 2 of the 20-day optimisation plan, first pass
+No UI change, no new features. Item 11 of the plan: thumbnails are now scaled inside the decoder.
+- `BitmapFactory.Options` gets `inDensity`/`inTargetDensity` set to the post-sample width and the
+  520 px cap, so the decoder produces the final size directly instead of allocating a full-size
+  bitmap and copying it through `Bitmap.createScaledBitmap`. One fewer large bitmap per thumbnail,
+  and the `createScaledBitmap` path is now only a fallback for when the source dimensions are
+  unknown. Thumbnail bytes and image quality are unchanged.
 
 ### 1.1.0 — day 1 of the 20-day optimisation plan, fourth pass
 No UI change, no new features, no app code touched. Item 10 of the plan: the first-frame cost of a
