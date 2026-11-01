@@ -417,6 +417,10 @@ function titleText(){
   if(S.tab==='albums')return S.album?(ALB().find(a=>a.id===S.album)||{name:'Albums'}).name:'Albums';
   return 'Search';
 }
+/* The header markup depends only on the mode/tab/album, so key it: a selection
+   toggle during a drag then only rewrites the title text in place instead of
+   re-creating every button on each hit-test. */
+let headKey=null;
 function renderHead(){
   const h=$('#head'); let l='',r='';
   if(S.selMode){
@@ -428,7 +432,10 @@ function renderHead(){
     r=`<button class="rbtn glass" data-act="add">${I.plus}</button><button class="rbtn glass" data-act="settings">${I.gear}</button>`;
     if(S.tab==='library'||(S.tab==='albums'&&S.album))r=`<button class="txtbtn glass" data-act="startsel">Select</button>`+r;
   }
-  h.innerHTML=l+`<div class="ttl">${titleText()}</div>`+r;
+  const key=(S.selMode?'s':'n')+'|'+S.tab+'|'+(S.album||'');
+  if(key!==headKey){h.innerHTML=l+`<div class="ttl">${titleText()}</div>`+r;headKey=key;return}
+  const ttl=h.querySelector('.ttl'),t=titleText();
+  if(ttl&&ttl.textContent!==t)ttl.textContent=t;
 }
 function tilesHTML(list){
   const groups=[];let cnt=0;
