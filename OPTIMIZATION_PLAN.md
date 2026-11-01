@@ -34,7 +34,7 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
 - [x] 6. Short-lived (1.5 s) cache of the MediaStore result so a resume + permission callback do not double-query. *(1.0.7)*
 - [x] 7. Drop the second `paintTilt()` call in `applySettings` when motion is on (the timer already runs). *(1.0.7)*
 - [x] 8. Replace `innerHTML` grid rebuilds with a `DocumentFragment` where the DOM is unchanged. *(1.0.8)*
-- [ ] 9. Avoid re-creating the whole header on every selection toggle during a drag.
+- [x] 9. Avoid re-creating the whole header on every selection toggle during a drag. *(1.0.9)*
 - [ ] 10. Measure first-frame time on a 2000-photo library and write the number into the README.
 
 ## Day 2 — image pipeline
