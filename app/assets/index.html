@@ -55,7 +55,7 @@ body.light .glass{border-color:rgba(255,255,255,.7)}
 .sec{padding:16px 16px 8px;font-size:15px;font-weight:700;display:flex;justify-content:space-between}
 .sec small{color:var(--sub);font-weight:500}
 .grid{display:grid;grid-template-columns:repeat(var(--cols),1fr);gap:2px;padding:0 2px}
-.tile{position:relative;aspect-ratio:1;overflow:hidden;background:rgba(128,128,128,.25);border-radius:2px;will-change:transform}
+.tile{position:relative;aspect-ratio:1;overflow:hidden;background:rgba(128,128,128,.25);border-radius:2px;contain:layout paint style}
 .tile img{width:100%;height:100%;object-fit:cover;display:block;pointer-events:none}
 .tile .fv{position:absolute;left:5px;bottom:4px;width:16px;height:16px;fill:#fff;filter:drop-shadow(0 1px 3px rgba(0,0,0,.6))}
 .tile .ck{position:absolute;top:6px;left:6px;width:24px;height:24px;border-radius:50%;border:2px solid #fff;background:rgba(0,0,0,.2);display:none;place-items:center}
@@ -262,11 +262,11 @@ function applySettings(){
   if(N&&N.setTilt){try{N.setTilt(!!ST.depth)}catch(e){}}
   if(ST.motion&&!driftTimer)driftTimer=setInterval(paintTilt,60);
   if(!ST.motion&&driftTimer){clearInterval(driftTimer);driftTimer=null}
-  paintTilt();
+  if(!ST.motion)paintTilt();
 }
 
 /* ---------- depth / 4D engine ---------- */
-let SENSOR={x:0,y:0}, DRIFT=0, driftTimer=null;
+let SENSOR={x:0,y:0}, DRIFT=0, driftTimer=null, lastTx=99, lastTy=99;
 function paintTilt(){
   let x=ST.depth?SENSOR.x:0, y=ST.depth?SENSOR.y:0;
   if(ST.motion&&!window.__still){
@@ -276,6 +276,8 @@ function paintTilt(){
     }
     DRIFT+=.05;
   }
+  if(Math.abs(x-lastTx)<.002&&Math.abs(y-lastTy)<.002)return;
+  lastTx=x;lastTy=y;
   const r=document.documentElement.style;
   r.setProperty('--tx',x.toFixed(4));
   r.setProperty('--ty',y.toFixed(4));
@@ -543,18 +545,26 @@ scr.addEventListener('pointermove',e=>{
     }
     return;
   }
-  const el=document.elementFromPoint(e.clientX,e.clientY);
-  const tile=el&&el.closest?el.closest('.tile'):null;
-  if(tile&&tile.dataset.id)setSel(+tile.dataset.id,drag.state);
-  clearInterval(autoScroll);autoScroll=null;
-  if(e.clientY<150){autoScroll=setInterval(()=>{scr.scrollTop-=14},16)}
-  else if(e.clientY>innerHeight-190){autoScroll=setInterval(()=>{scr.scrollTop+=14},16)}
+  // hit-test at most once per frame instead of once per pointer event
+  drag.px=e.clientX; drag.py=e.clientY;
+  if(!drag.raf){
+    drag.raf=requestAnimationFrame(()=>{
+      if(!drag)return;
+      drag.raf=0;
+      const el=document.elementFromPoint(drag.px,drag.py);
+      const tile=el&&el.closest?el.closest('.tile'):null;
+      if(tile&&tile.dataset.id)setSel(+tile.dataset.id,drag.state);
+      clearInterval(autoScroll);autoScroll=null;
+      if(drag.py<150){autoScroll=setInterval(()=>{scr.scrollTop-=14},16)}
+      else if(drag.py>innerHeight-190){autoScroll=setInterval(()=>{scr.scrollTop+=14},16)}
+    });
+  }
 });
 
 function endDrag(){
   clearTimeout(lpTimer);lpTimer=null;
   clearInterval(autoScroll);autoScroll=null;
-  if(drag){drag=null;if(dragMoved)setTimeout(()=>{dragMoved=false},60)}
+  if(drag){if(drag.raf)cancelAnimationFrame(drag.raf);drag=null;if(dragMoved)setTimeout(()=>{dragMoved=false},60)}
 }
 ['pointerup','pointercancel','pointerleave'].forEach(n=>scr.addEventListener(n,endDrag));
 scr.addEventListener('click',e=>{
