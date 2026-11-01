@@ -13,9 +13,9 @@ A real, installable Android **photos** app — the liquid-glass UI from the orig
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.0.8, 110 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.1.0, 110 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.0.8 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.1.0 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -57,6 +57,30 @@ The app is photos-only: only `MediaStore.Images` is queried, and `READ_MEDIA_VID
 
 No third-party libraries. No Gradle. No AndroidX. Just the Android framework, one Java file, and the original HTML.
 
+## Performance
+
+The number that matters most on a big library is how long the first tile takes to appear.
+`tools/bench_first_frame.js` measures it: it loads the real `app/assets/index.html` in headless
+Chromium with the native bridge stubbed, feeds it **2000 photos**, and serves `/thumb/<id>` from a
+local HTTP server the same way `shouldInterceptRequest` serves it on the device. Median of 5 runs,
+milliseconds from navigation start (412×915 viewport):
+
+| 2000 photos | ms |
+| --- | --- |
+| chrome painted, empty state | 209 |
+| every tile in the DOM | 1705 |
+| first thumbnail decoded | 2481 |
+| **first tile decoded and painted** | **3657** |
+
+```bash
+node tools/bench_first_frame.js --count=2000 --runs=5
+```
+
+This is the day-1 baseline (v1.1.0) that the rest of the optimisation plan is measured against. It
+is a browser-harness number on a 2-core sandbox, not a phone measurement, so compare pass against
+pass rather than against a device. The gap between "first thumbnail decoded" and "first tile
+painted" is the cost of laying out the 2000-tile grid, which is where the next passes look first.
+
 ## Build it yourself
 
 Requirements: JDK 17, Android SDK platform 34 + build-tools 34.0.0.
@@ -81,6 +105,7 @@ app/res/                                    strings, colours, theme, adaptive ic
 build.sh                                    full APK pipeline without Gradle
 tools/make_icons.py                         launcher icon generator
 tools/gen_preview.py                        preview harness (see below)
+tools/bench_first_frame.js                  first-frame benchmark on a 2000-photo library
 docs/screenshots/                           screenshots
 ```
 
@@ -89,6 +114,20 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.1.0 — day 1 of the 20-day optimisation plan, fourth pass
+No UI change, no new features, no app code touched. Item 10 of the plan: the first-frame cost of a
+2000-photo library is now measured and written down, so the later passes have a baseline.
+- New `tools/bench_first_frame.js`: runs the real `app/assets/index.html` in headless Chromium with
+  the bridge stubbed and 2000 photos, serves thumbnails from a local HTTP server, and reports the
+  time to the first tile painted (median of runs).
+- Result on 2000 photos: first tile decoded and painted at **3657 ms** from navigation start, with
+  the empty chrome up at 209 ms and all 2000 tiles in the DOM by 1705 ms. See *Performance* above.
+
+### 1.0.9 — day 1 of the 20-day optimisation plan, third pass
+No UI change, no new features.
+- The header markup is keyed on mode/tab/album, so toggling a selection during a drag only rewrites
+  the title text instead of rebuilding the buttons on every hit-test.
 
 ### 1.0.8 — day 1 of the 20-day optimisation plan, second pass
 No UI change, no new features.
