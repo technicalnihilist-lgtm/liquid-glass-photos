@@ -13,9 +13,9 @@ A real, installable Android **photos** app — the liquid-glass UI from the orig
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.0.4, 104 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.0.7, 106 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.0.4 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.0.7 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -24,11 +24,13 @@ Install it on a phone (enable "install unknown apps" for your file manager), the
 - **Real gallery** — reads images through Android's `MediaStore`, newest first, grouped by day (Today / Yesterday / date), like Google Photos.
 - **Albums** — Recents, Favourites, Camera, Screenshots, Trash, with live counts and cover thumbnails.
 - **Viewer** — swipe between items, double-tap to zoom, drag to pan, swipe down to close.
-- **Selection** — long-press or "Select", then favourite, share, or delete a batch.
+- **Selection** — long-press or tap "Select", then favourite, share or delete a batch. Press one photo and **drag across the grid** to select everything you pass over (drag over selected ones to deselect); it auto-scrolls at the top and bottom edges. **Swipe to the right edge** while dragging and every photo gets selected. The **All** button in the header toggles select-all.
 - **Share** — real Android share sheet via `ACTION_SEND_MULTIPLE` with content URIs.
 - **Delete** — first moves to the app's Trash (undoable), then "Delete" in Trash calls the Android 11+ system delete confirmation, which removes the file from the device for real.
 - **Add** — system image picker; selected photos are copied into your gallery (`Pictures/LiquidGlass`).
-- **Liquid glass settings** — transparency, blur, grid size (1–6 columns, also pinch the grid), water sound + volume, bounce, haptics, dark/light theme. All persisted.
+- **Depth effect** — the accelerometer drives three parallax layers: the wallpaper moves against the tilt, the photo grid moves a little, and the glass chrome (header buttons, tab bar, selection bar) moves the most and rotates in 3D around the touch point. Tilt the phone and the UI has real depth.
+- **4D motion** — when the phone is held still the layers keep drifting on a slow sine, and the glass chrome shimmers gently, so the screen never feels frozen.
+- **Liquid glass settings** — transparency, blur, grid size (1–6 columns, also pinch the grid), water sound + volume, bounce, haptics, depth effect, 4D motion, dark/light theme. All persisted.
 - **Haptics and sound** — real `VIBRATE` and a Web Audio "plop" on every tap.
 - **Back button** — closes the viewer, leaves an album, or exits, in that order.
 
@@ -44,6 +46,7 @@ The UI is the original HTML/CSS/JS, unchanged in look and behaviour. Everything 
 | `navigator.share` on blobs | native `ACTION_SEND_MULTIPLE` |
 | `<input type=file>` | `ACTION_OPEN_DOCUMENT` + copy into MediaStore |
 | favourites in memory | `SharedPreferences` |
+| (new) tilt parallax | `Sensor.TYPE_ACCELEROMETER` → `window.__native.tilt(x, y)` |
 
 The app is photos-only: only `MediaStore.Images` is queried, and `READ_MEDIA_VIDEO` is not requested in the manifest.
 
@@ -86,6 +89,30 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.0.7 — day 1 of the 20-day optimisation plan
+No UI change, no new features. Only internal work, see `OPTIMIZATION_PLAN.md`.
+- Thumbnails decode in **one** pass: the size comes from the MediaStore `WIDTH`/`HEIGHT` columns instead of a second `inJustDecodeBounds` stream open.
+- The thumbnail cache is bounded by **bytes** (12 MB LRU) instead of a 220-entry count, so memory stays flat on a big library.
+- `.tile` gets `contain: layout paint style`, so off-screen tiles cost nothing to lay out or paint.
+- Drag-select hit-tests **once per frame** (rAF) instead of once per pointer event.
+- Tilt values are only written to CSS when they actually move (>0.002), cutting style recalcs while the phone is still.
+- A 1.5 s cache of the MediaStore result stops a resume + permission callback from querying twice; the cache is invalidated on delete and import.
+- One `paintTilt()` per settings change instead of two.
+
+### 1.0.6
+- **Drag to select.** In selection mode, press a photo and drag across the grid: every tile you pass is selected (or deselected, if you started on a selected one). The grid auto-scrolls when you drag to the top or bottom edge.
+- **Swipe right to select all.** Drag to the right edge of the screen and every photo in the current view is selected at once.
+- **All button** in the header while selecting - toggles select-all / clear.
+- **Deeper depth + parallax.** The photo plane itself now tilts in perspective with the device (`rotateX`/`rotateY`), the wallpaper parallaxes further against the tilt, and the glass chrome rotates harder - the layers read as separate depths instead of a flat sheet.
+- Fixed: the tilt transform was overriding `translateX(-50%)`, which pushed the selection bar and the viewer bar off-centre.
+
+### 1.0.5
+- **Depth effect.** A native accelerometer listener (baseline-calibrated, ~30 Hz, paused with the app) feeds tilt into CSS custom properties. Three layers move at different rates - wallpaper against the tilt, grid slightly with it, glass chrome most - and the chrome rotates in 3D (`perspective` + `rotateX/rotateY`), with the tab bar's shadow sliding under it.
+- **4D motion.** An idle drift on a slow sine keeps the depth layers alive when the phone is still, plus a gentle shimmer on the glass chrome.
+- Both are toggles in the settings sheet, persisted; turning depth off also stops the sensor listener to save battery.
+- Soft gradient scrims behind the header and tab bar, so glass labels stay readable over bright photos.
+- Tighter settings rows so the whole sheet - including Done/Reset - fits without scrolling.
 
 ### 1.0.4
 - **Photos only.** Video support removed completely: only `MediaStore.Images` is queried, the `READ_MEDIA_VIDEO` permission is gone, the native video player and the `Videos` album are deleted, and the picker accepts images only.
