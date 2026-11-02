@@ -45,11 +45,14 @@ import org.json.JSONObject;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.channels.FileChannel;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -86,6 +89,18 @@ public class MainActivity extends Activity {
 
     // id -> {width, height} straight from MediaStore, so a thumbnail needs one stream open
     private final Map<Long, int[]> dimCache = Collections.synchronizedMap(new HashMap<Long, int[]>());
+    // id -> DATE_MODIFIED, so an edited photo does not keep serving its old thumbnail from disk
+    private final Map<Long, Long> dateCache = Collections.synchronizedMap(new HashMap<Long, Long>());
+
+    /* The decoded thumbnail is already a small JPEG in memory, so it is cheap to keep on disk as
+       well: a byte-bounded LRU directory in getCacheDir() that a fresh process can read back
+       without opening MediaStore or waking the decoder. That is what stops a cold start from
+       painting an empty grid while the first few hundred thumbs are decoded. */
+    private static final long THUMB_DISK_BYTES = 12L * 1024 * 1024;
+    private static final int THUMB_DISK_TRIM_EVERY = 64;
+    private static final long THUMB_DISK_TOUCH_MS = 60L * 1000;
+    private File thumbDir;
+    private int thumbDiskWrites = 0;
 
     private void cacheThumb(long key, byte[] bytes) {
         synchronized (thumbCache) {
@@ -98,6 +113,89 @@ public class MainActivity extends Activity {
                 thumbCacheBytes -= e.getValue().length;
                 it.remove();
             }
+        }
+    }
+
+    private File thumbDir() {
+        if (thumbDir == null) {
+            File d = new File(getCacheDir(), "thumbs");
+            if (!d.isDirectory() && !d.mkdirs()) return null;
+            thumbDir = d;
+        }
+        return thumbDir;
+    }
+
+    private String thumbDiskName(long id) {
+        Long stamp = dateCache.get(id);
+        return id + "-" + (stamp != null ? stamp : 0L) + ".jpg";
+    }
+
+    /** Read a previously decoded thumbnail, or null when the cache is cold for this photo. */
+    private byte[] readThumbDisk(long id) {
+        File d = thumbDir();
+        if (d == null) return null;
+        File f = new File(d, thumbDiskName(id));
+        long len = f.length();
+        if (len <= 0 || len > 4L * 1024 * 1024) return null;
+        try {
+            byte[] b = new byte[(int) len];
+            FileInputStream in = new FileInputStream(f);
+            try {
+                int off = 0;
+                while (off < b.length) {
+                    int n = in.read(b, off, b.length - off);
+                    if (n < 0) break;
+                    off += n;
+                }
+                if (off != b.length) return null;
+            } finally { close(in); }
+            /* A read is a use: refresh the timestamp, but not on every hit (that would be a
+               metadata write per thumbnail). */
+            long now = System.currentTimeMillis();
+            if (now - f.lastModified() > THUMB_DISK_TOUCH_MS) f.setLastModified(now);
+            return b;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private void writeThumbDisk(long id, byte[] bytes) {
+        File d = thumbDir();
+        if (d == null || bytes == null || bytes.length == 0) return;
+        File tmp = null;
+        try {
+            /* Write to a temp name and rename, so a process that dies mid-write cannot leave a
+               truncated JPEG that the next cold start would hand to the grid. */
+            tmp = File.createTempFile("t", ".tmp", d);
+            FileOutputStream out = new FileOutputStream(tmp);
+            try { out.write(bytes); } finally { close(out); }
+            File dst = new File(d, thumbDiskName(id));
+            if (!tmp.renameTo(dst)) { dst.delete(); tmp.renameTo(dst); }
+            tmp = null;
+            if (++thumbDiskWrites % THUMB_DISK_TRIM_EVERY == 0) trimThumbDisk(d);
+        } catch (Throwable t) {
+            Log.w(TAG, "thumb disk write " + id, t);
+        } finally {
+            if (tmp != null) tmp.delete();
+        }
+    }
+
+    /** Drop least-recently-used entries once the directory passes its byte budget. */
+    private void trimThumbDisk(File d) {
+        File[] files = d.listFiles();
+        if (files == null) return;
+        long total = 0L;
+        for (File f : files) total += f.length();
+        if (total <= THUMB_DISK_BYTES) return;
+        Arrays.sort(files, new Comparator<File>() {
+            public int compare(File a, File b) {
+                return Long.compare(a.lastModified(), b.lastModified());
+            }
+        });
+        for (File f : files) {
+            if (total <= THUMB_DISK_BYTES) break;
+            long len = f.length();
+            if (f.delete()) total -= len;
         }
     }
 
@@ -395,6 +493,7 @@ public class MainActivity extends Activity {
                 mimeCache.put(it.id, it.mime);
                 sizeCache.put(it.id, it.size);
                 if (it.w > 0 && it.h > 0) dimCache.put(it.id, new int[]{it.w, it.h});
+                if (it.date > 0) dateCache.put(it.id, it.date);
             }
         } catch (Exception e) {
             Log.w(TAG, "query failed", e);
@@ -457,6 +556,11 @@ public class MainActivity extends Activity {
             byte[] hit = thumbCache.get(key);
             if (hit != null) return hit;
         }
+        byte[] onDisk = readThumbDisk(id);
+        if (onDisk != null) {
+            cacheThumb(key, onDisk);
+            return onDisk;
+        }
         Bitmap bmp = null;
         try {
             Uri uri = uriFor(id);
@@ -477,6 +581,7 @@ public class MainActivity extends Activity {
             bmp.compress(Bitmap.CompressFormat.JPEG, 82, bo);
             byte[] bytes = bo.toByteArray();
             cacheThumb(key, bytes);
+            writeThumbDisk(id, bytes);
             return bytes;
         } catch (Throwable t) {
             Log.w(TAG, "thumb fail " + id, t);
@@ -561,6 +666,10 @@ public class MainActivity extends Activity {
     }
 
     private static void close(InputStream s) {
+        try { if (s != null) s.close(); } catch (IOException ignored) {}
+    }
+
+    private static void close(java.io.OutputStream s) {
         try { if (s != null) s.close(); } catch (IOException ignored) {}
     }
 
