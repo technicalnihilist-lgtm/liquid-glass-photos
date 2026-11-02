@@ -115,6 +115,17 @@ The APK ships with **no** sample media — it is empty until it reads your galle
 
 ## Changelog
 
+### 1.1.3 — day 2 of the 20-day optimisation plan, third pass
+No UI change, no new features. Item 13 of the plan: the bounds pass in the `BitmapFactory` fallback
+leaves nothing behind.
+- `decodeThumbFactory` reads `outWidth`/`outHeight` from the `inJustDecodeBounds` pass and now recycles
+  the bitmap that decode can still hand back the moment the dimensions are taken, so a probe bitmap is
+  never alive while the real decode allocates its own buffer. `inBitmap` is cleared on the probe
+  options too, so no reuse target is carried into a pass that must not allocate.
+- Only the `BitmapFactory` path changes: devices below API 28, and any file `ImageDecoder` throws on.
+  Thumbnail bytes, dimensions and quality are identical; the saved allocation is one transient bitmap
+  per thumbnail on those paths.
+
 ### 1.1.2 — day 2 of the 20-day optimisation plan, second pass
 No UI change, no new features. Item 12 of the plan: thumbnails decode through `ImageDecoder` on API 28+.
 - `ImageDecoder.decodeBitmap` with an `OnHeaderDecodedListener` does the downscale itself:
