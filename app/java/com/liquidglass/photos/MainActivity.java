@@ -529,9 +529,19 @@ public class MainActivity extends Activity {
         if (maxDim <= 0) {
             BitmapFactory.Options bounds = new BitmapFactory.Options();
             bounds.inJustDecodeBounds = true;
+            /* Nothing may survive the bounds pass: no reuse target coming in, and no
+               pixel buffer left behind afterwards. */
+            bounds.inBitmap = null;
             InputStream in1 = getContentResolver().openInputStream(uri);
-            try { BitmapFactory.decodeStream(in1, null, bounds); } finally { close(in1); }
-            maxDim = Math.max(bounds.outWidth, bounds.outHeight);
+            try {
+                Bitmap probe = BitmapFactory.decodeStream(in1, null, bounds);
+                maxDim = Math.max(bounds.outWidth, bounds.outHeight);
+                /* Bounds mode should not allocate, but a few platform decoders still
+                   hand back a bitmap (a 1x1 placeholder or a thumb-sized frame). Drop it
+                   the moment the dimensions are read so it is not alive while the real
+                   decode below allocates its own buffer. */
+                if (probe != null && !probe.isRecycled()) probe.recycle();
+            } finally { close(in1); }
         }
         while (maxDim > 0 && maxDim / (sample * 2) >= THUMB_SAMPLE_TARGET_PX) sample *= 2;
         BitmapFactory.Options o = new BitmapFactory.Options();
