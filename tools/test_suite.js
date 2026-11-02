@@ -1,0 +1,240 @@
+#!/usr/bin/env node
+/*
+ * Puppeteer regression suite for Liquid Glass Photos.
+ *
+ * Runs the real app/assets/index.html in headless Chromium with the native bridge
+ * stubbed out (the way tools/bench_first_frame.js does), drives the UI through real
+ * clicks and typing, and asserts the behaviour that must not change between
+ * optimisation passes: the grid paints, thumbnails are fetched, tabs/search/chips
+ * filter, selection works, the viewer opens and closes, the grid size setting
+ * applies, and the empty / permission-denied states still render.
+ *
+ * usage: node tools/test_suite.js [--count=60] [--verbose]
+ * exit code 0 only when every check prints PASS.
+ */
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+const puppeteer = require('puppeteer-core');
+
+const ROOT = path.resolve(__dirname, '..');
+const APP = path.join(ROOT, 'app/assets/index.html');
+
+const argv = process.argv.slice(2);
+const arg = (k, d) => {
+  const a = argv.find((x) => x.startsWith('--' + k + '='));
+  return a ? a.split('=')[1] : d;
+};
+const COUNT = parseInt(arg('count', '60'), 10);
+const VERBOSE = argv.includes('--verbose');
+const CHROME = process.env.CHROME_PATH || '/usr/local/bin/chromium';
+
+const THUMB = Buffer.from(
+  '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAoHBwgHBgoICAgLCgoLDhgQDg0NDh0VFhEYIx8lJCIfIiEmKzcvJik0KSEiMEExNDk7Pj4+JS5ESUM8SDc9Pjv/2wBDAQoLCw4NDhwQEBw7KCIoOzs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozv/wAARCACgAKADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDmNtG2pNtG2vpLnmWI9tG2pNtG2i4WI9tG2pNtG2i4WI9tG2pNtG2i4WI9tG2pNtG2i4WI9tG2pNtG2i4WI9tG2pNtG2i4WI9tG2pNtG2i4WI9tG2pNtG2i4WI9tG2pNtG2i4WI9tG2pNtG2i4WH4oxUmKMVlcuxHijFSYoxRcLEeKMVJijFFwsR4oxUmKMUXCxHijFSYoxRcLEeKMVJijFFwsR4oxUmKMUXCxHijFSYoxRcLEeKMVJijFFwsR4oxUmKMUXCxJto21Jto21nc0sR7aNtSbaNtFwsR7aNtSbaNtFwsR7aNtSbaNtFwsR7aNtSbaNtFwsR7aNtSbaNtFwsR7aNtSbaNtFwsR7aNtSbaNtFwsR7aNtSbaNtFwsR7aNtSbaNtFwsSYoxT8UYrO5pYZijFPxRii4WGYoxT8UYouFhmKMU/FGKLhYZijFPxRii4WGYoxT8UYouFhmKMU/FGKLhYZijFPxRii4WGYoxT8UYouFhmKMU/FGKLhYk20bakxRisrmliPbRtqTFGKLhYj20bakxRii4WI9tG2pMUYouFiPbRtqTFGKLhYj20bakxRii4WI9tG2pMUYouFiPbRtqTFGKLhYj20bakxRii4WI9tG2pMUYouFiTFGKk20bazuXYjxRipNtG2i4WI8UYqTbRtouFiPFGKk20baLhYjxRipNtG2i4WI8UYqTbRtouFiPFGKk20baLhYjxRipNtG2i4WI8UYqTbRtouFiPFGKk20baLhYfto21JijFZ3NLEe2jbUmKMUXCxHto21JijFFwsR7aNtSYoxRcLEe2jbUmKMUXCxHto21JijFFwsR7aNtSYoxRcLEe2jbUmKMUXCxHto21JijFFwsR7aNtSYoxRcLEmKMVJto21lc0sR4oxUm2jbRcLEeKMVJto20XCxHijFSbaNtFwsR4oxUm2jbRcLEeKMVJto20XCxHijFSbaNtFwsR4oxUm2jbRcLEeKMVJto20XCxHijFSbaNtFwsSbaNtPxRis7l2GbaNtPxRii4WGbaNtPxRii4WGbaNtPxRii4WGbaNtPxRii4WGbaNtPxRii4WGbaNtPxRii4WGbaNtPxRii4WGbaNtPxRii4WGbaNtPxRii4WJMUYqTbRtrO5pYjxRipNtG2i4WI8UYqTbRtouFiPFGKk20baLhYjxRipNtG2i4WI8UYqTbRtouFiPFGKk20baLhYjxRipNtG2i4WI8UYqTbRtouFiPFGKk20baLhYjxRipNtG2i4WI8UYqTbRtouFiPFGKk20baLhY/9k=',
+  'base64'
+);
+
+function library(n) {
+  const types = ['image/jpeg', 'image/jpeg', 'image/jpeg', 'image/png'];
+  const buckets = ['Camera', 'Camera', 'Camera', 'WhatsApp Images', 'Download', 'Instagram', 'DCIM', 'Screenshots'];
+  const now = Date.UTC(2026, 9, 30, 11, 20);
+  const items = [];
+  for (let i = 0; i < n; i++) {
+    items.push({
+      id: i + 1,
+      v: 0,
+      n: 'IMG_2026' + String(1000 + i) + '.jpg',
+      b: buckets[i % buckets.length],
+      m: types[i % types.length],
+      d: now - i * 3 * 60 * 60 * 1000,
+      s: 1900000 + i * 977,
+      w: 1080,
+      h: i % 3 === 0 ? 1080 : 810,
+    });
+  }
+  return items;
+}
+
+function stubFor(items, access) {
+  return (
+    '<script>(function(){const ITEMS=' +
+    JSON.stringify(items) +
+    ';window.AndroidNative={meta(){return JSON.stringify({sdk:34,device:"Pixel 8",android:"14",access:' +
+    access +
+    ',insetTop:74,insetBottom:48,light:false})},access(){return ' +
+    access +
+    '},requestAccess(){},photos(){return JSON.stringify({count:ITEMS.length,items:ITEMS})},favs(){return "[]"},setFav(){},share(){},delete(){},pick(){},theme(){},info(){},setTilt(){}};})();</script>'
+  );
+}
+
+const results = [];
+function check(name, ok, detail) {
+  results.push({ name, ok });
+  console.log((ok ? 'PASS  ' : 'FAIL  ') + name + (detail ? '  (' + detail + ')' : ''));
+}
+
+(async () => {
+  const thumbHits = { total: 0, bad: 0 };
+  let currentStub = stubFor(library(COUNT), 'true');
+
+  const server = http.createServer((req, res) => {
+    const url = (req.url || '/').split('?')[0];
+    if (url === '/' || url === '/index.html') {
+      const html = fs.readFileSync(APP, 'utf8').replace('<body>', '<body>\n' + currentStub, 1);
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(html);
+      return;
+    }
+    if (/^\/thumb\/\d+$/.test(url)) {
+      thumbHits.total++;
+      res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': THUMB.length });
+      res.end(THUMB);
+      return;
+    }
+    if (/^\/media\/\d+$/.test(url)) {
+      res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': THUMB.length });
+      res.end(THUMB);
+      return;
+    }
+    thumbHits.bad++;
+    res.writeHead(404);
+    res.end();
+  });
+  await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
+  const base = 'http://127.0.0.1:' + server.address().port + '/';
+
+  const browser = await puppeteer.launch({
+    executablePath: CHROME,
+    args: ['--no-sandbox', '--disable-dev-shm-usage', '--hide-scrollbars', '--mute-audio'],
+    defaultViewport: { width: 412, height: 915, deviceScaleFactor: 1 },
+  });
+
+  const errors = [];
+  const page = await browser.newPage();
+  page.on('pageerror', (e) => errors.push(String(e && e.message)));
+  page.on('console', (m) => {
+    if (m.type() === 'error') errors.push('console: ' + m.text());
+  });
+
+  const tiles = () => page.$$eval('.tile', (n) => n.length);
+  const settle = (ms = 250) => new Promise((r) => setTimeout(r, ms));
+
+  /* 1. the library paints every tile */
+  await page.goto(base, { waitUntil: 'load' });
+  await page.waitForFunction((n) => document.querySelectorAll('.tile').length === n, { timeout: 30000 }, COUNT);
+  check('boot renders all ' + COUNT + ' tiles', (await tiles()) === COUNT);
+
+  /* 2. the header carries the library title and the select button */
+  const headOk = await page.evaluate(() => {
+    const t = document.querySelector('#head .ttl');
+    return !!t && t.textContent.trim().length > 0 && !!document.querySelector('[data-act="startsel"]');
+  });
+  check('header renders title + Select', headOk);
+
+  /* 3. thumbnails are served, none 404 */
+  await page.waitForFunction(() => document.querySelectorAll('.tile img').length > 0, { timeout: 15000 });
+  await settle(400);
+  check('thumbnails served (' + thumbHits.total + ' requests, ' + thumbHits.bad + ' bad)', thumbHits.total > 0 && thumbHits.bad === 0);
+
+  /* 4. tab switch to Albums and back */
+  await page.click('#pill button[data-tab="albums"]');
+  await page.waitForFunction(() => document.querySelectorAll('.album').length > 0, { timeout: 10000 });
+  const albums = await page.$$eval('.album', (n) => n.length);
+  await page.click('#pill button[data-tab="library"]');
+  await page.waitForFunction((n) => document.querySelectorAll('.tile').length === n, { timeout: 10000 }, COUNT);
+  check('albums tab lists ' + albums + ' albums, library returns', albums > 0 && (await tiles()) === COUNT);
+
+  /* 5. search filters by album name, then clears */
+  await page.click('.tabs .round');
+  await page.waitForSelector('#q', { timeout: 10000 });
+  await page.type('#q', 'Camera');
+  await page.waitForFunction(() => document.querySelectorAll('#res .tile').length > 0, { timeout: 10000 });
+  const filtered = await page.$$eval('#res .tile', (n) => n.length);
+  await page.click('#q', { clickCount: 3 });
+  await page.keyboard.press('Backspace');
+  await page.waitForFunction(() => {
+    const e = document.querySelector('#res .empty');
+    return !!e && /search by name/i.test(e.textContent);
+  }, { timeout: 10000 });
+  check('search "Camera" narrows to ' + filtered + ' of ' + COUNT + ', clearing returns to the prompt', filtered > 0 && filtered < COUNT);
+
+  /* 6. favourites chip with no favourites shows the empty result state */
+  await page.click('[data-chip="fav"]');
+  await page.waitForFunction(() => {
+    const e = document.querySelector('#res .empty');
+    return !!e && /no matches/i.test(e.textContent);
+  }, { timeout: 10000 });
+  await page.click('[data-chip="fav"]');
+  await page.waitForFunction(() => {
+    const e = document.querySelector('#res .empty');
+    return !!e && /search by name/i.test(e.textContent);
+  }, { timeout: 10000 });
+  check('favourites chip empty state, chip clears', true);
+
+  /* 7. selection: Select -> All -> everything selected -> exit */
+  await page.click('#pill button[data-tab="library"]');
+  await page.waitForFunction((n) => document.querySelectorAll('.tile').length === n, { timeout: 10000 }, COUNT);
+  await page.click('[data-act="startsel"]');
+  await page.waitForSelector('#selbar:not(.hide)', { timeout: 10000 });
+  await page.click('[data-act="selall"]');
+  await page.waitForFunction((n) => document.querySelectorAll('.tile.on').length === n, { timeout: 10000 }, COUNT);
+  const selAll = await page.$$eval('.tile.on', (n) => n.length);
+  await page.click('[data-act="endsel"]');
+  await page.waitForFunction(() => document.querySelectorAll('.tile.on').length === 0, { timeout: 10000 });
+  check('select-all marks ' + selAll + ' tiles, exit clears', selAll === COUNT);
+
+  /* 8. tapping a tile opens the viewer, close returns to the grid */
+  await page.click('.tile');
+  await page.waitForSelector('.viewer .stage img', { timeout: 10000 });
+  const viewerOk = await page.evaluate(() => !!document.querySelector('.viewer .vbar'));
+  await page.click('[data-v="close"]');
+  await page.waitForFunction(() => !document.querySelector('.viewer'), { timeout: 10000 });
+  await page.waitForFunction((n) => document.querySelectorAll('.tile').length === n, { timeout: 10000 }, COUNT);
+  check('viewer opens with controls and closes back to ' + COUNT + ' tiles', viewerOk);
+
+  /* 9. the grid-size setting changes the tile width */
+  const w0 = await page.$eval('.tile', (t) => t.getBoundingClientRect().width);
+  await page.click('[data-act="settings"]');
+  await page.waitForSelector('#s_co', { timeout: 10000 });
+  await page.$eval('#s_co', (el) => {
+    el.value = '6';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await settle(400);
+  const w1 = await page.$eval('.tile', (t) => t.getBoundingClientRect().width);
+  await page.click('#dn');
+  await settle(400);
+  check('grid size setting narrows tiles ' + Math.round(w0) + 'px -> ' + Math.round(w1) + 'px', w1 < w0);
+
+  /* 10. no uncaught errors during any of the above */
+  check('no page errors', errors.length === 0, errors.slice(0, 2).join(' | '));
+
+  /* 11. empty library state */
+  currentStub = stubFor([], 'true');
+  const empty = await browser.newPage();
+  await empty.goto(base, { waitUntil: 'load' });
+  await empty.waitForSelector('#screen .empty', { timeout: 15000 });
+  const emptyText = await empty.$eval('#screen .empty', (e) => e.textContent);
+  check('empty library state renders', /no photos/i.test(emptyText), emptyText.split('.')[0].slice(0, 40));
+  await empty.close();
+
+  /* 12. permission-denied state offers the allow button */
+  currentStub = stubFor(library(COUNT), 'false');
+  const denied = await browser.newPage();
+  await denied.goto(base, { waitUntil: 'load' });
+  await denied.waitForSelector('#screen .empty [data-act="ask"]', { timeout: 15000 });
+  const deniedText = await denied.$eval('#screen .empty', (e) => e.textContent);
+  check('permission-denied state offers Allow access', /permission/i.test(deniedText));
+  await denied.close();
+
+  await browser.close();
+  server.close();
+
+  const failed = results.filter((r) => !r.ok);
+  console.log('\n' + (results.length - failed.length) + '/' + results.length + ' PASS' + (failed.length ? ', ' + failed.length + ' FAIL' : ''));
+  if (VERBOSE && failed.length) console.log(failed.map((f) => f.name).join('\n'));
+  process.exit(failed.length ? 1 : 0);
+})().catch((e) => {
+  console.error('suite failed:', e && e.message);
+  process.exit(1);
+});
