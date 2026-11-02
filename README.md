@@ -115,6 +115,19 @@ The APK ships with **no** sample media — it is empty until it reads your galle
 
 ## Changelog
 
+### 1.1.4 — day 2 of the 20-day optimisation plan, fourth pass
+No UI change, no new features. Item 14 of the plan: decoded thumbnails are cached on disk, so a cold
+start is not blank.
+- Every thumbnail was already a small JPEG byte array in memory; it is now also written to a
+  byte-bounded LRU directory (`getCacheDir()/thumbs`, 12 MB) named `<id>-<DATE_MODIFIED>.jpg`. A fresh
+  process reads the bytes straight back, so the first screen of tiles paints without opening MediaStore
+  or waking the decoder at all.
+- Writes go to a temp name and are renamed into place, so a process that dies mid-write cannot leave a
+  truncated JPEG for the next cold start. The directory is trimmed least-recently-used first, every 64
+  writes, and a read refreshes the entry's timestamp at most once a minute.
+- The file name carries the media's `DATE_MODIFIED`, so an edited photo does not keep serving its old
+  thumbnail; a photo that moved or was deleted simply falls out of the LRU.
+
 ### 1.1.3 — day 2 of the 20-day optimisation plan, third pass
 No UI change, no new features. Item 13 of the plan: the bounds pass in the `BitmapFactory` fallback
 leaves nothing behind.
