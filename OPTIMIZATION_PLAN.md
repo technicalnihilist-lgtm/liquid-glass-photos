@@ -41,7 +41,7 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
 
 - [x] 11. Downscale with `BitmapFactory.Options.inDensity` instead of post-decode `createScaledBitmap` where possible. *(1.1.1)*
 - [x] 12. Try `ImageDecoder` (API 28+) for thumbnails with a `BitmapFactory` fallback. *(1.1.2)*
-- [ ] 13. Recycle the bounds bitmap immediately after reading width/height.
+- [x] 13. Recycle the bounds bitmap immediately after reading width/height. *(1.1.3)*
 - [ ] 14. Cache decoded thumbnails to disk (small LRU dir) so a cold start is not blank.
 - [ ] 15. Serve `Content-Length` on every thumb response (currently always set — verify with a test).
 - [ ] 16. Add `Cache-Control: immutable` to thumbs so the WebView stops re-asking.
