@@ -19,12 +19,14 @@ import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
+import android.graphics.ImageDecoder;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
 import android.provider.MediaStore;
 import android.util.Log;
+import android.util.Size;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
@@ -75,6 +77,9 @@ public class MainActivity extends Activity {
 
     // in-memory thumbnail cache, bounded by bytes rather than entry count
     private static final long THUMB_CACHE_BYTES = 12L * 1024 * 1024;
+    // longest side of a thumbnail, and the size the BitmapFactory sample loop aims above
+    private static final int THUMB_MAX_PX = 520;
+    private static final int THUMB_SAMPLE_TARGET_PX = 420;
     private final LinkedHashMap<Long, byte[]> thumbCache =
             new LinkedHashMap<Long, byte[]>(64, 0.75f, true);
     private long thumbCacheBytes = 0L;
@@ -455,35 +460,10 @@ public class MainActivity extends Activity {
         Bitmap bmp = null;
         try {
             Uri uri = uriFor(id);
-            int target = 420;
-            int sample = 1;
-            int maxDim = 0;
+            int max = THUMB_MAX_PX;
             int[] dims = dimCache.get(id);
-            if (dims != null) {
-                maxDim = Math.max(dims[0], dims[1]);
-            } else {
-                BitmapFactory.Options bounds = new BitmapFactory.Options();
-                bounds.inJustDecodeBounds = true;
-                InputStream in1 = getContentResolver().openInputStream(uri);
-                try { BitmapFactory.decodeStream(in1, null, bounds); } finally { close(in1); }
-                maxDim = Math.max(bounds.outWidth, bounds.outHeight);
-            }
-            while (maxDim > 0 && maxDim / (sample * 2) >= target) sample *= 2;
-            int max = 520;
-            BitmapFactory.Options o = new BitmapFactory.Options();
-            o.inSampleSize = sample;
-            o.inPreferredConfig = Bitmap.Config.RGB_565;
-            /* Ask the decoder to land on the final size itself: with inDensity set to the
-               post-sample width and inTargetDensity to the cap, the scale happens inside
-               the decode and the full-size bitmap is never materialised. */
-            int decodedMax = maxDim > 0 ? Math.max(1, maxDim / sample) : 0;
-            if (decodedMax > max) {
-                o.inScaled = true;
-                o.inDensity = decodedMax;
-                o.inTargetDensity = max;
-            }
-            InputStream in2 = getContentResolver().openInputStream(uri);
-            try { bmp = BitmapFactory.decodeStream(in2, null, o); } finally { close(in2); }
+            int maxDim = dims != null ? Math.max(dims[0], dims[1]) : 0;
+            bmp = decodeThumb(uri, maxDim, max);
             if (bmp == null) return null;
             int wd = bmp.getWidth(), ht = bmp.getHeight();
             if (Math.max(wd, ht) > max) {
@@ -504,6 +484,70 @@ public class MainActivity extends Activity {
         } finally {
             if (bmp != null) bmp.recycle();
         }
+    }
+
+    /* Decode one thumbnail, no larger than `max` px on its longest side. ImageDecoder is the
+       primary path on API 28+: it applies the EXIF rotation (so the grid matches the viewer)
+       and does the downscale inside the decode. Anything it cannot read, and every device below
+       API 28, falls back to the BitmapFactory path. */
+    private Bitmap decodeThumb(Uri uri, int maxDim, int max) throws Exception {
+        if (Build.VERSION.SDK_INT >= 28) {
+            Bitmap b = decodeThumbImageDecoder(uri, max);
+            if (b != null) return b;
+        }
+        return decodeThumbFactory(uri, maxDim, max);
+    }
+
+    private Bitmap decodeThumbImageDecoder(Uri uri, final int max) {
+        try {
+            ImageDecoder.Source src = ImageDecoder.createSource(getContentResolver(), uri);
+            return ImageDecoder.decodeBitmap(src, new ImageDecoder.OnHeaderDecodedListener() {
+                @Override
+                public void onHeaderDecoded(ImageDecoder decoder, ImageDecoder.ImageInfo info,
+                                           ImageDecoder.Source source) {
+                    /* Software + low-RAM: a mutable RGB_565 bitmap, which is what compress() needs
+                       and the same config the BitmapFactory path asks for. */
+                    decoder.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE);
+                    decoder.setMemorySizePolicy(ImageDecoder.MEMORY_POLICY_LOW_RAM);
+                    Size sz = info.getSize();
+                    int longest = Math.max(sz.getWidth(), sz.getHeight());
+                    if (longest > max) {
+                        float f = max / (float) longest;
+                        decoder.setTargetSize(Math.max(1, Math.round(sz.getWidth() * f)),
+                                Math.max(1, Math.round(sz.getHeight() * f)));
+                    }
+                }
+            });
+        } catch (Exception e) {
+            Log.w(TAG, "ImageDecoder thumb fail " + uri, e);
+            return null;
+        }
+    }
+
+    private Bitmap decodeThumbFactory(Uri uri, int maxDim, int max) throws Exception {
+        int sample = 1;
+        if (maxDim <= 0) {
+            BitmapFactory.Options bounds = new BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            InputStream in1 = getContentResolver().openInputStream(uri);
+            try { BitmapFactory.decodeStream(in1, null, bounds); } finally { close(in1); }
+            maxDim = Math.max(bounds.outWidth, bounds.outHeight);
+        }
+        while (maxDim > 0 && maxDim / (sample * 2) >= THUMB_SAMPLE_TARGET_PX) sample *= 2;
+        BitmapFactory.Options o = new BitmapFactory.Options();
+        o.inSampleSize = sample;
+        o.inPreferredConfig = Bitmap.Config.RGB_565;
+        /* Ask the decoder to land on the final size itself: with inDensity set to the
+           post-sample width and inTargetDensity to the cap, the scale happens inside
+           the decode and the full-size bitmap is never materialised. */
+        int decodedMax = maxDim > 0 ? Math.max(1, maxDim / sample) : 0;
+        if (decodedMax > max) {
+            o.inScaled = true;
+            o.inDensity = decodedMax;
+            o.inTargetDensity = max;
+        }
+        InputStream in2 = getContentResolver().openInputStream(uri);
+        try { return BitmapFactory.decodeStream(in2, null, o); } finally { close(in2); }
     }
 
     private static void close(InputStream s) {

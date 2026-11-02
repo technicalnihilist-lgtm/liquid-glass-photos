@@ -13,9 +13,9 @@ A real, installable Android **photos** app — the liquid-glass UI from the orig
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.1.1, 110 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.1.2, 110 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.1.1 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.1.2 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -52,7 +52,7 @@ The app is photos-only: only `MediaStore.Images` is queried, and `READ_MEDIA_VID
 
 `MainActivity` hosts a `WebView` and serves the app from a private origin (`https://app.local/`) that it intercepts in `shouldInterceptRequest`. That handler does the real work:
 
-- `/thumb/<id>` — decodes a downscaled JPEG with `BitmapFactory` and `inSampleSize`, cached in memory, so a 50 MP library scrolls smoothly.
+- `/thumb/<id>` — decodes a downscaled JPEG with `ImageDecoder` on API 28+ (`BitmapFactory` + `inSampleSize` below that, and as the fallback for anything `ImageDecoder` cannot read), cached in memory, so a 50 MP library scrolls smoothly.
 - `/media/<id>` — streams the original image bytes with `Content-Length` and HTTP `Range` / `206 Partial Content` support.
 
 No third-party libraries. No Gradle. No AndroidX. Just the Android framework, one Java file, and the original HTML.
@@ -114,6 +114,18 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.1.2 — day 2 of the 20-day optimisation plan, second pass
+No UI change, no new features. Item 12 of the plan: thumbnails decode through `ImageDecoder` on API 28+.
+- `ImageDecoder.decodeBitmap` with an `OnHeaderDecodedListener` does the downscale itself:
+  `setTargetSize` clamps the longest side to the same 520 px cap the `BitmapFactory` path uses, and
+  `setAllocator(SOFTWARE)` + `setMemorySizePolicy(MEMORY_POLICY_LOW_RAM)` keep the result a mutable
+  RGB_565 software bitmap, which is what `compress()` needs and the same config as before.
+- `BitmapFactory` (with `inSampleSize` and `inDensity`) is now the fallback: every device below API 28,
+  and any file `ImageDecoder` throws on, still decodes exactly as it did in 1.1.1.
+- Visible effect, and it is a defect fix rather than a redesign: `ImageDecoder` honours the EXIF
+  orientation, so a photo shot in portrait no longer shows up sideways in the grid while the viewer
+  shows it upright. Nothing else about the tiles changes.
 
 ### 1.1.1 — day 2 of the 20-day optimisation plan, first pass
 No UI change, no new features. Item 11 of the plan: thumbnails are now scaled inside the decoder.
