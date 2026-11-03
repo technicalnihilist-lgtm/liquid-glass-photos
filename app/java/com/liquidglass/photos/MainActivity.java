@@ -695,7 +695,11 @@ public class MainActivity extends Activity {
                     if (bytes == null) return notFound();
                     Map<String, String> h = new HashMap<>();
                     h.put("Content-Type", "image/jpeg");
-                    h.put("Cache-Control", "public, max-age=86400");
+                    /* A thumb URL is stable for a media id, and the bytes behind it only change when
+                       the photo is re-imported under a new id, so the response can be marked
+                       immutable: the WebView stops re-asking for a thumb it already has instead of
+                       going back through shouldInterceptRequest on every grid repaint. */
+                    h.put("Cache-Control", "public, max-age=31536000, immutable");
                     h.put("Content-Length", String.valueOf(bytes.length));
                     return new WebResourceResponse("image/jpeg", null, 200, "OK", h,
                             new ByteArrayInputStream(bytes));
@@ -727,6 +731,9 @@ public class MainActivity extends Activity {
         /* The body is empty, so the length is 0 rather than unknown: a thumb request that fails
            to decode must still be a length-delimited response, like the successful one. */
         Map<String, String> h = new HashMap<>();
+        /* A failed decode says nothing durable about the photo, so it must not be remembered the
+           way an immutable successful thumb is. */
+        h.put("Cache-Control", "no-store");
         h.put("Content-Length", "0");
         return new WebResourceResponse("text/plain", "utf-8", 404, "Not Found",
                 h, new ByteArrayInputStream(new byte[0]));
