@@ -13,9 +13,9 @@ A real, installable Android **photos** app — the liquid-glass UI from the orig
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.1.7, 110 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.1.8, 110 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.1.7 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.1.8 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -114,6 +114,26 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.1.8 — day 2 of the 20-day optimisation plan, eighth pass
+No UI change, no new features. Item 18 of the plan: an `OutOfMemoryError` in the thumbnail decode is
+contained and answered with a 404 instead of taking the app down.
+- `thumbnail()` caught every failure with a single `catch (Throwable t)`, which returned null for an
+  `Error` as well as an `Exception`. That kept the process alive but left the heap in exactly the
+  state that caused the failure, so the next tile hit the same wall.
+- The decode path now catches `OutOfMemoryError` on its own, before the general handler: it drops
+  the in-memory thumbnail cache (`dropThumbCache()`, which frees the byte-bounded 12 MB LRU and
+  resets the byte count) so the following decode has heap to work with, logs the media id, and
+  returns null — so `shouldInterceptRequest` answers `404` with `Content-Length: 0` and
+  `Cache-Control: no-store`, exactly like any other photo that cannot be read. Nothing is scaled,
+  compressed, cached or written to disk for it, and the disk cache is left alone since it costs no
+  heap and is still correct.
+- `ImageDecoder`'s fallback is unaffected: its handler catches `Exception`, so an `Error` propagates
+  straight to the guard instead of triggering a second, larger allocation on the `BitmapFactory`
+  path. The UI, the glass and every gesture are untouched.
+- One new check in `tools/test_suite.js` audits the decode path and fails if the `OutOfMemoryError`
+  handler disappears, if it stops freeing the cache, or if the 404 return moves above it. 17 checks,
+  all PASS.
 
 ### 1.1.7 — day 2 of the 20-day optimisation plan, seventh pass
 No UI change, no new features. Item 17 of the plan: media too small to be a photo is skipped instead
