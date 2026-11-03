@@ -30,8 +30,8 @@ echo "[2/6] aapt2 link"
   --java "$BUILD/gen" \
   --min-sdk-version 24 \
   --target-sdk-version 34 \
-  --version-code 19 \
-  --version-name 1.1.8 \
+  --version-code 20 \
+  --version-name 1.1.9 \
   --auto-add-overlay
 
 echo "[3/6] javac"
