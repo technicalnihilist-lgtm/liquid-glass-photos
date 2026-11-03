@@ -13,9 +13,9 @@ A real, installable Android **photos** app — the liquid-glass UI from the orig
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.1.5, 110 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.1.7, 110 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.1.5 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.1.7 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -114,6 +114,30 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.1.7 — day 2 of the 20-day optimisation plan, seventh pass
+No UI change, no new features. Item 17 of the plan: media too small to be a photo is skipped instead
+of being upscaled into a 1×1 thumbnail.
+- A truncated or half-written image can make the decoder return a degenerate frame. The scale step
+  clamped that to `Math.max(1, …)`, so it became a 1×1 JPEG that was compressed, cached in memory,
+  written to the disk cache and served as a 200 — a flat grey tile that stayed wrong on every later
+  run, including after a cold start read it back.
+- `thumbnail()` now refuses anything whose longest side is under `THUMB_MIN_PX` (48 px) and returns
+  null, so the response is a 404 and the tile simply stays empty. The guard runs twice: once against
+  the `WIDTH`/`HEIGHT` columns MediaStore already reported, before any cache read or stream open (so
+  a stale tiny thumb from an older build is not served either), and once against the decoded bitmap,
+  before it is scaled, compressed, cached or written to disk.
+- One new check in `tools/test_suite.js` audits the decode path and fails if the floor moves, if
+  either guard disappears, or if scaling or caching is reachable before the guard. 16 checks, all PASS.
+
+### 1.1.6 — day 2 of the 20-day optimisation plan, sixth pass
+No UI change, no new features. Item 16 of the plan: thumb responses are marked `Cache-Control:
+immutable`.
+- A `/thumb/<id>` URL is stable for a media id and the bytes behind it only change when the photo is
+  re-imported under a new id, so the 200 now carries `Cache-Control: public, max-age=31536000,
+  immutable` and the WebView stops re-asking for a thumb it already has. The 404 fallback is marked
+  `no-store` so a thumb that failed to decode is retried next time instead of being remembered as
+  permanently missing.
 
 ### 1.1.5 — day 2 of the 20-day optimisation plan, fifth pass
 No UI change, no new features. Item 15 of the plan: every thumb response carries a `Content-Length`,
