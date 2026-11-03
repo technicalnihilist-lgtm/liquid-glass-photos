@@ -475,9 +475,10 @@ function renderScreen(keepScroll=true){
   const sc=$('#screen'), y=keepScroll?sc.scrollTop:0;
   sc.classList.toggle('sel',S.selMode);
   let html='',key=null;
+  setPrefetchList(null);
   if(S.tab==='library'||(S.tab==='albums'&&S.album)){
     const list=current();
-    if(list.length){html=tilesHTML(list);key=gridKey(list)}
+    if(list.length){html=tilesHTML(list);key=gridKey(list);setPrefetchList(list)}
     else{html=emptyHTML();key='e|'+S.tab+'|'+(S.album||'')+'|'+(N?(HAS_ACCESS?1:0):2)+'|'+(LOADED?1:0)}
   }else if(S.tab==='albums'){
     html='<div class="albums">'+ALB().map((a,k)=>{
@@ -496,11 +497,66 @@ function renderScreen(keepScroll=true){
 }
 function renderResults(){
   const list=current(),el=$('#res'); if(!el)return;
+  setPrefetchList(list);
   if(!list.length){swapIn(el,`<div class="empty">${(S.q||S.chip)?'No matches found.':'Search by name, album or date.'}</div>`);resKey=null;return}
   const key=gridKey(list);
   if(!S.anim&&key===resKey)paintSel(el);
   else{swapIn(el,tilesHTML(list));resKey=key}
 }
+
+/* ---------- thumbnail prefetch ----------
+   A tile only asks for its thumbnail once the browser decides the image is close
+   to the viewport, so a fast flick lands on tiles the decoder has not reached
+   yet and they pop in blank. While the grid scrolls we warm the screen that
+   comes next: find the last tile on screen, take the items after it in the
+   current list and request their thumbnails early, so they are already decoded
+   (in the native cache and the WebView's immutable HTTP cache) when the tile
+   scrolls in. One probe per frame, at most PRE_MAX requests per probe, only the
+   next PRE_SCREEN items, and each id once, so the cost stays bounded and
+   nothing is fetched twice. PRE=false (or window.__noPre) turns it off; the
+   UI is identical either way. */
+const PRE=true;              // flag: prefetch the next screen of thumbnails
+const PRE_SCREEN=24;         // one screen's worth of tiles at the default 3 columns
+const PRE_MAX=12;            // requests issued per probe at most
+const PROBE_Y=[.62,.78,.9,.98];   // viewport heights probed for the last visible tile
+let preList=null, preIdx=null, preY=-1, preRaf=0;
+const preWarmed=new Set();
+function setPrefetchList(list){
+  if(!PRE){preList=null;preIdx=null;return}
+  const n=list?list.length:0;
+  if(!n){preList=null;preIdx=null;preY=-1;return}
+  if(preList&&preList.length===n&&preList[0].id===list[0].id&&preList[n-1].id===list[n-1].id)return;
+  preList=list;preIdx=new Map();
+  for(let i=0;i<n;i++)preIdx.set(list[i].id,i);
+  preY=-1;                       // a re-render moves the tiles; probe again
+}
+function prefetchNext(){
+  preRaf=0;
+  if(!PRE||window.__noPre||document.hidden)return;
+  const list=preList; if(!list||list.length<2)return;
+  const y=$('#screen').scrollTop;
+  if(y===preY)return;            // nothing moved since the last probe
+  preY=y;
+  let at=-1;
+  for(const f of PROBE_Y){
+    const el=document.elementFromPoint(innerWidth*.5,innerHeight*f);
+    const t=el&&el.closest?el.closest('.tile'):null;
+    const i=t&&t.dataset.id?preIdx.get(+t.dataset.id):undefined;
+    if(i!==undefined&&i>at)at=i;
+  }
+  if(at<0)return;                // not the grid: a sheet, the viewer, albums, empty
+  if(preWarmed.size>4096)preWarmed.clear();
+  const end=Math.min(list.length,at+1+PRE_SCREEN);
+  let sent=0;
+  for(let i=at+1;i<end&&sent<PRE_MAX;i++){
+    const id=list[i].id;
+    if(preWarmed.has(id))continue;
+    preWarmed.add(id);sent++;
+    const im=new Image(); im.decoding='async'; im.src=thumbSrc(list[i]);
+  }
+}
+if(PRE)$('#screen').addEventListener('scroll',()=>{if(!preRaf)preRaf=requestAnimationFrame(prefetchNext)},{passive:true});
+
 function renderTabs(){
   const sel=S.selMode;
   $('#tabs').classList.toggle('hide',sel);
