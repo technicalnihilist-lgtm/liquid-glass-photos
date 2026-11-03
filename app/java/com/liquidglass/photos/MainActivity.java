@@ -83,6 +83,11 @@ public class MainActivity extends Activity {
     // longest side of a thumbnail, and the size the BitmapFactory sample loop aims above
     private static final int THUMB_MAX_PX = 520;
     private static final int THUMB_SAMPLE_TARGET_PX = 420;
+    /* Longest side below which a decode is not a photo at all. Corrupt or half-written media used
+       to come back as a degenerate frame that got scaled up into a 1x1 JPEG and cached, so the
+       tile painted as a flat grey square and stayed wrong on every later run. Those are skipped
+       (404) instead, so the tile simply stays empty. */
+    private static final int THUMB_MIN_PX = 48;
     private final LinkedHashMap<Long, byte[]> thumbCache =
             new LinkedHashMap<Long, byte[]>(64, 0.75f, true);
     private long thumbCacheBytes = 0L;
@@ -552,6 +557,14 @@ public class MainActivity extends Activity {
 
     private byte[] thumbnail(long id) {
         long key = id;
+        /* MediaStore already reported the pixel size, so a media row that claims to be smaller
+           than the floor can be dropped before anything is opened, decoded or served — including
+           a 1x1 thumb an older build may have left in the disk cache. */
+        int[] dims = dimCache.get(id);
+        if (dims != null && Math.max(dims[0], dims[1]) < THUMB_MIN_PX) {
+            Log.w(TAG, "thumb too small, skipping " + id + " " + dims[0] + "x" + dims[1]);
+            return null;
+        }
         synchronized (thumbCache) {
             byte[] hit = thumbCache.get(key);
             if (hit != null) return hit;
@@ -565,11 +578,17 @@ public class MainActivity extends Activity {
         try {
             Uri uri = uriFor(id);
             int max = THUMB_MAX_PX;
-            int[] dims = dimCache.get(id);
             int maxDim = dims != null ? Math.max(dims[0], dims[1]) : 0;
             bmp = decodeThumb(uri, maxDim, max);
             if (bmp == null) return null;
             int wd = bmp.getWidth(), ht = bmp.getHeight();
+            /* A decoder handed a truncated or malformed file can still return a frame. Below the
+               floor that frame is not worth serving, so nothing is scaled, compressed, cached or
+               written to disk for it and the caller answers 404. */
+            if (Math.max(wd, ht) < THUMB_MIN_PX) {
+                Log.w(TAG, "thumb decoded too small, skipping " + id + " " + wd + "x" + ht);
+                return null;
+            }
             if (Math.max(wd, ht) > max) {
                 float f = max / (float) Math.max(wd, ht);
                 Bitmap sc = Bitmap.createScaledBitmap(bmp,
