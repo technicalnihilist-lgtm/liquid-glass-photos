@@ -13,9 +13,9 @@ A real, installable Android **photos** app — the liquid-glass UI from the orig
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.1.2, 110 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.1.5, 110 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.1.2 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.1.5 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -114,6 +114,18 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.1.5 — day 2 of the 20-day optimisation plan, fifth pass
+No UI change, no new features. Item 15 of the plan: every thumb response carries a `Content-Length`,
+and the suite now proves it.
+- The 200 response for `/thumb/<id>` already sent the JPEG length; the 404 fallback used when a
+  thumbnail cannot be decoded returned an empty body with no length at all. It now sends
+  `Content-Length: 0`, so no thumb response is ever length-unknown — Chromium can size the tile
+  without waiting for the stream to close.
+- Two new checks in `tools/test_suite.js`: one drives the grid and asserts that every `/thumb/`
+  response the page receives carries a `Content-Length` that matches the bytes delivered (60/60 in
+  the current run), and one audits `MainActivity.java` so the native 200 and 404 paths cannot lose
+  the header without failing the suite. The suite is now 15 checks, all PASS.
 
 ### 1.1.4 — day 2 of the 20-day optimisation plan, fourth pass
 No UI change, no new features. Item 14 of the plan: decoded thumbnails are cached on disk, so a cold

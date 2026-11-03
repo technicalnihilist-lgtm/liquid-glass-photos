@@ -227,6 +227,38 @@ function check(name, ok, detail) {
   check('permission-denied state offers Allow access', /permission/i.test(deniedText));
   await denied.close();
 
+  /* 13. every thumb response is length-delimited: the native client must send Content-Length
+         on every /thumb/ hit, and the length must match the bytes actually delivered. */
+  currentStub = stubFor(library(COUNT), 'true');
+  const thumbPage = await browser.newPage();
+  const thumbRes = [];
+  thumbPage.on('response', (r) => {
+    if (/\/thumb\/\d+$/.test(r.url())) thumbRes.push(r);
+  });
+  await thumbPage.goto(base, { waitUntil: 'load' });
+  await thumbPage.waitForFunction(() => document.querySelectorAll('.tile img').length > 0, { timeout: 15000 });
+  await settle(500);
+  let lenOk = 0;
+  const lenBad = [];
+  for (const r of thumbRes) {
+    const cl = r.headers()['content-length'];
+    let body = 0;
+    try { body = (await r.buffer()).length; } catch (e) { body = -1; }
+    if (cl != null && parseInt(cl, 10) === body) lenOk++;
+    else lenBad.push(r.url().split('/').pop() + '=' + cl + '/' + body);
+  }
+  check('every thumb response sends Content-Length (' + lenOk + '/' + thumbRes.length + ')',
+    thumbRes.length > 0 && lenBad.length === 0, lenBad.slice(0, 2).join(' '));
+  await thumbPage.close();
+
+  /* 14. the native side keeps that contract: the thumb 200 sets the JPEG length and the
+         404 fallback (a thumb that will not decode) sets 0 instead of omitting the header. */
+  const java = fs.readFileSync(path.join(ROOT, 'app/java/com/liquidglass/photos/MainActivity.java'), 'utf8');
+  const thumbBranch = (java.match(/if \(path\.startsWith\("\/thumb\/"\)\)[\s\S]*?new ByteArrayInputStream\(bytes\)\);/) || [''])[0];
+  const notFoundFn = (java.match(/private WebResourceResponse notFound\(\)[\s\S]*?\n    \}/) || [''])[0];
+  check('native thumb 200 sets Content-Length', /h\.put\("Content-Length", String\.valueOf\(bytes\.length\)\)/.test(thumbBranch));
+  check('native thumb 404 sets Content-Length 0', /h\.put\("Content-Length", "0"\)/.test(notFoundFn));
+
   await browser.close();
   server.close();
 

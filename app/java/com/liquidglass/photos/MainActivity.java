@@ -688,6 +688,10 @@ public class MainActivity extends Activity {
                     String rest = path.substring(7);
                     long id = Long.parseLong(rest);
                     byte[] bytes = thumbnail(id);
+                    /* Every thumb response carries a Content-Length: the 200 below sends the
+                       JPEG length, and the 404 fallback (notFound) sends 0. Without a length
+                       Chromium has to wait for the stream to end before it can paint the tile,
+                       which shows up as an empty tile that fills in late. */
                     if (bytes == null) return notFound();
                     Map<String, String> h = new HashMap<>();
                     h.put("Content-Type", "image/jpeg");
@@ -720,8 +724,12 @@ public class MainActivity extends Activity {
     }
 
     private WebResourceResponse notFound() {
+        /* The body is empty, so the length is 0 rather than unknown: a thumb request that fails
+           to decode must still be a length-delimited response, like the successful one. */
+        Map<String, String> h = new HashMap<>();
+        h.put("Content-Length", "0");
         return new WebResourceResponse("text/plain", "utf-8", 404, "Not Found",
-                new HashMap<String, String>(), new ByteArrayInputStream(new byte[0]));
+                h, new ByteArrayInputStream(new byte[0]));
     }
 
     private WebResourceResponse asset(String path) throws IOException {
