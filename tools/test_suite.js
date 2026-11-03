@@ -259,6 +259,19 @@ function check(name, ok, detail) {
   check('native thumb 200 sets Content-Length', /h\.put\("Content-Length", String\.valueOf\(bytes\.length\)\)/.test(thumbBranch));
   check('native thumb 404 sets Content-Length 0', /h\.put\("Content-Length", "0"\)/.test(notFoundFn));
 
+  /* 15. corrupt media is skipped rather than upscaled into a 1x1 tile: the decode path must refuse
+         anything whose longest side is under the 48 px floor, and refuse it before it scales,
+         compresses, caches or writes anything. */
+  const minPx = (java.match(/THUMB_MIN_PX = (\d+)/) || [])[1];
+  const thumbFn = (java.match(/private byte\[\] thumbnail\(long id\)[\s\S]*?\n    \}/) || [''])[0];
+  const preGuard = thumbFn.indexOf('Math.max(dims[0], dims[1]) < THUMB_MIN_PX');
+  const postGuard = thumbFn.indexOf('Math.max(wd, ht) < THUMB_MIN_PX');
+  const firstScale = thumbFn.indexOf('Bitmap.createScaledBitmap');
+  const firstStore = thumbFn.indexOf('cacheThumb(key, bytes)');
+  check('native thumb skips media under ' + (minPx || '?') + ' px before scaling or caching',
+    minPx === '48' && preGuard > 0 && postGuard > preGuard && firstScale > postGuard &&
+    firstStore > postGuard && thumbFn.indexOf('return null') > 0);
+
   await browser.close();
   server.close();
 
