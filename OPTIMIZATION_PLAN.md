@@ -47,7 +47,7 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
 - [x] 16. Add `Cache-Control: immutable` to thumbs so the WebView stops re-asking. *(1.1.6)*
 - [x] 17. Skip thumbnails smaller than 48 px (corrupt media) instead of returning a 1×1 bitmap. *(1.1.7)*
 - [x] 18. Guard against `OutOfMemoryError` in the decode path and return a 404 rather than crashing. *(1.1.8)*
-- [ ] 19. Prefetch the next screen of thumbnails while scrolling (behind a flag, no UI change).
+- [x] 19. Prefetch the next screen of thumbnails while scrolling (behind a flag, no UI change). *(1.1.9)*
 - [ ] 20. Verify HEIC/HEIF decodes on API 28+ and fall back gracefully on older.
 
 ## Day 3 — media query
