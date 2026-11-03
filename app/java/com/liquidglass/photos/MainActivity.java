@@ -94,6 +94,10 @@ public class MainActivity extends Activity {
 
     // id -> {width, height} straight from MediaStore, so a thumbnail needs one stream open
     private final Map<Long, int[]> dimCache = Collections.synchronizedMap(new HashMap<Long, int[]>());
+    /* Media ids already known to be HEIC/HEIF that this device cannot decode. Bounded, because it
+       only ever holds the HEIF rows of the current library. */
+    private final Set<Long> heifUnsupported = Collections.synchronizedSet(new HashSet<Long>());
+    private static final int HEIF_UNSUPPORTED_MAX = 512;
     // id -> DATE_MODIFIED, so an edited photo does not keep serving its old thumbnail from disk
     private final Map<Long, Long> dateCache = Collections.synchronizedMap(new HashMap<Long, Long>());
 
@@ -555,6 +559,24 @@ public class MainActivity extends Activity {
     /* thumbnails                                                         */
     /* ------------------------------------------------------------------ */
 
+    /* HEIC/HEIF: the platform image decoder only learned these formats in API 28, so on API 24-27
+       BitmapFactory cannot read them at all and every attempt opens the stream, fails and throws
+       the fd away - once per request, so every scroll past the tile pays for it again. Those ids
+       are refused before anything is opened and remembered, so the tile simply stays empty the
+       way it does today for a photo that cannot be read. On API 28+ ImageDecoder reads HEIF
+       natively, so nothing is refused there. */
+    private static boolean isHeif(String mime) {
+        if (mime == null) return false;
+        String m = mime.toLowerCase(Locale.US);
+        return m.equals("image/heic") || m.equals("image/heif")
+                || m.equals("image/heic-sequence") || m.equals("image/heif-sequence");
+    }
+
+    private void noteHeifUnsupported(long id, String why) {
+        if (heifUnsupported.size() >= HEIF_UNSUPPORTED_MAX) heifUnsupported.clear();
+        if (heifUnsupported.add(id)) Log.i(TAG, "heif unsupported " + id + ": " + why);
+    }
+
     private byte[] thumbnail(long id) {
         long key = id;
         /* MediaStore already reported the pixel size, so a media row that claims to be smaller
@@ -563,6 +585,14 @@ public class MainActivity extends Activity {
         int[] dims = dimCache.get(id);
         if (dims != null && Math.max(dims[0], dims[1]) < THUMB_MIN_PX) {
             Log.w(TAG, "thumb too small, skipping " + id + " " + dims[0] + "x" + dims[1]);
+            return null;
+        }
+        /* A HEIF row this device already refused costs nothing to refuse again: no cache probe,
+           no stream open, no decode attempt. */
+        if (heifUnsupported.contains(id)) return null;
+        boolean heif = isHeif(mimeCache.get(id));
+        if (heif && Build.VERSION.SDK_INT < 28) {
+            noteHeifUnsupported(id, "no HEIF decoder before API 28");
             return null;
         }
         synchronized (thumbCache) {
@@ -579,7 +609,7 @@ public class MainActivity extends Activity {
             Uri uri = uriFor(id);
             int max = THUMB_MAX_PX;
             int maxDim = dims != null ? Math.max(dims[0], dims[1]) : 0;
-            bmp = decodeThumb(uri, maxDim, max);
+            bmp = decodeThumb(uri, maxDim, max, heif);
             if (bmp == null) return null;
             int wd = bmp.getWidth(), ht = bmp.getHeight();
             /* A decoder handed a truncated or malformed file can still return a frame. Below the
@@ -628,13 +658,21 @@ public class MainActivity extends Activity {
     }
 
     /* Decode one thumbnail, no larger than `max` px on its longest side. ImageDecoder is the
-       primary path on API 28+: it applies the EXIF rotation (so the grid matches the viewer)
-       and does the downscale inside the decode. Anything it cannot read, and every device below
-       API 28, falls back to the BitmapFactory path. */
-    private Bitmap decodeThumb(Uri uri, int maxDim, int max) throws Exception {
+       primary path on API 28+: it applies the EXIF rotation (so the grid matches the viewer),
+       does the downscale inside the decode, and is the only decoder on the platform that reads
+       HEIC/HEIF. Anything it cannot read, and every device below API 28, falls back to the
+       BitmapFactory path - except a HEIF file, which that path cannot read on any version, so
+       falling back to it would only open the same stream to watch it fail again. */
+    private Bitmap decodeThumb(Uri uri, int maxDim, int max, boolean heif) throws Exception {
         if (Build.VERSION.SDK_INT >= 28) {
             Bitmap b = decodeThumbImageDecoder(uri, max);
             if (b != null) return b;
+            if (heif) {
+                /* 28+ owns HEIF, so a failure here is the file and not the format: one attempt,
+                   no second open, and the tile stays empty as it does for any unreadable photo. */
+                Log.w(TAG, "heif decode failed on ImageDecoder " + uri);
+                return null;
+            }
         }
         return decodeThumbFactory(uri, maxDim, max);
     }
