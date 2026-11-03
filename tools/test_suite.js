@@ -272,6 +272,17 @@ function check(name, ok, detail) {
     minPx === '48' && preGuard > 0 && postGuard > preGuard && firstScale > postGuard &&
     firstStore > postGuard && thumbFn.indexOf('return null') > 0);
 
+  /* The decode path must contain an OutOfMemoryError instead of letting it reach the process:
+     the thumbnail decode catches it, frees the byte cache, and answers 404 like any other photo
+     that cannot be read. */
+  const oomCatch = thumbFn.indexOf('catch (OutOfMemoryError');
+  const oomReturn = oomCatch > 0 ? thumbFn.indexOf('return null', oomCatch) : -1;
+  const oomDrop = oomCatch > 0 ? thumbFn.indexOf('dropThumbCache()', oomCatch) : -1;
+  const dropFn = (java.match(/private void dropThumbCache\(\)[\s\S]*?\n    \}/) || [''])[0];
+  check('native thumb contains OutOfMemoryError and answers 404 instead of crashing',
+    oomCatch > 0 && oomDrop > oomCatch && oomReturn > oomDrop &&
+    /thumbCache\.clear\(\)/.test(dropFn) && /thumbCacheBytes = 0L/.test(dropFn));
+
   await browser.close();
   server.close();
 
