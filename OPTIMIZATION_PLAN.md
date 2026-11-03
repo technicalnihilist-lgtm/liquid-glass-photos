@@ -45,7 +45,7 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
 - [x] 14. Cache decoded thumbnails to disk (small LRU dir) so a cold start is not blank. *(1.1.4)*
 - [x] 15. Serve `Content-Length` on every thumb response (currently always set — verify with a test). *(1.1.5)*
 - [x] 16. Add `Cache-Control: immutable` to thumbs so the WebView stops re-asking. *(1.1.6)*
-- [ ] 17. Skip thumbnails smaller than 48 px (corrupt media) instead of returning a 1×1 bitmap.
+- [x] 17. Skip thumbnails smaller than 48 px (corrupt media) instead of returning a 1×1 bitmap. *(1.1.7)*
 - [ ] 18. Guard against `OutOfMemoryError` in the decode path and return a 404 rather than crashing.
 - [ ] 19. Prefetch the next screen of thumbnails while scrolling (behind a flag, no UI change).
 - [ ] 20. Verify HEIC/HEIF decodes on API 28+ and fall back gracefully on older.
