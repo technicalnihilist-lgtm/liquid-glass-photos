@@ -602,11 +602,28 @@ public class MainActivity extends Activity {
             cacheThumb(key, bytes);
             writeThumbDisk(id, bytes);
             return bytes;
+        } catch (OutOfMemoryError oom) {
+            /* A very large or oddly encoded photo can ask for more heap than the process has
+               left. The decode is the only place that allocates that much, so the failure is
+               contained here: give the cache's bytes back, log it, and answer 404 the way an
+               unreadable photo already does, instead of letting the Error kill the app. */
+            dropThumbCache();
+            Log.w(TAG, "thumb out of memory " + id);
+            return null;
         } catch (Throwable t) {
             Log.w(TAG, "thumb fail " + id, t);
             return null;
         } finally {
             if (bmp != null) bmp.recycle();
+        }
+    }
+
+    /* Release the decoded-JPEG cache so the next decode has heap to work with. The disk cache is
+       left alone: it costs no heap and is still correct. */
+    private void dropThumbCache() {
+        synchronized (thumbCache) {
+            thumbCache.clear();
+            thumbCacheBytes = 0L;
         }
     }
 
