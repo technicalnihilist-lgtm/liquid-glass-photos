@@ -13,9 +13,9 @@ A real, installable Android **photos** app — the liquid-glass UI from the orig
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.1.9, 110 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.2.0, 114 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.1.9 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.2.0 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -114,6 +114,27 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.2.0 — day 2 of the 20-day optimisation plan, tenth pass
+No UI change, no new features. Item 20 of the plan: HEIC/HEIF decodes on API 28+ and is refused
+cleanly below it instead of being retried on every scroll.
+- `ImageDecoder` is the only decoder on the platform that reads HEIC/HEIF, and it only exists from
+  API 28. On API 24-27 `BitmapFactory` cannot read the format at all: it opened the stream, failed
+  and threw the descriptor away — once per request, so a tile that came back into view paid for the
+  same doomed decode again, and again.
+- `thumbnail()` now checks the mime MediaStore already reported for the row (`isHeif()`: `image/heic`,
+  `image/heif` and the two `-sequence` variants). Below API 28 a HEIF row returns null before any
+  cache probe or stream open, and the id is remembered in a bounded set (`heifUnsupported`, cleared
+  at 512 entries) so later requests for it cost nothing. The response is the same 404 an unreadable
+  photo already gets, so the tile stays empty exactly as it does today — no placeholder, no change
+  to the grid, the glass or any gesture.
+- On API 28+ nothing is refused: `ImageDecoder` gets the file first as before. If it fails on a
+  HEIF row the `BitmapFactory` fallback is now skipped rather than opening the same stream to fail
+  the same way, so a broken HEIC costs one attempt instead of two.
+- Two new checks in `tools/test_suite.js` audit the decode path: one fails if the pre-28 guard moves
+  below the stream open, if the remembered set disappears, or if the mime test stops covering the
+  HEIF family; the other fails if `ImageDecoder` stops being tried first or if a HEIF failure can
+  still reach `BitmapFactory`. 19 checks, all PASS.
 
 ### 1.1.9 — day 2 of the 20-day optimisation plan, ninth pass
 No UI change, no new features. Item 19 of the plan: the grid warms the next screen of thumbnails
