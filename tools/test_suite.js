@@ -283,6 +283,30 @@ function check(name, ok, detail) {
     oomCatch > 0 && oomDrop > oomCatch && oomReturn > oomDrop &&
     /thumbCache\.clear\(\)/.test(dropFn) && /thumbCacheBytes = 0L/.test(dropFn));
 
+  /* 16. HEIC/HEIF: the platform decoder only reads it from API 28, so below that the decode path
+         must refuse the row before anything is opened (no stream, no fd, no repeated attempt) and
+         remember it, while on 28+ ImageDecoder is tried first and a HEIF failure is not handed to
+         the BitmapFactory fallback, which cannot read the format on any version. */
+  const heifFn = (java.match(/private static boolean isHeif\(String mime\)[\s\S]*?\n    \}/) || [''])[0];
+  const heifSkip = thumbFn.indexOf('heifUnsupported.contains(id)');
+  const heifMime = thumbFn.indexOf('isHeif(mimeCache.get(id))');
+  const heifGuard = thumbFn.indexOf('Build.VERSION.SDK_INT < 28');
+  const heifDecode = thumbFn.indexOf('decodeThumb(', heifMime);
+  check('native thumb refuses HEIF below API 28 before opening a stream and remembers the id',
+    /image\/heic/.test(heifFn) && /image\/heif-sequence/.test(heifFn) &&
+    heifSkip > 0 && heifSkip < heifMime && heifMime > preGuard && heifGuard > heifMime &&
+    thumbFn.indexOf('noteHeifUnsupported(id', heifGuard) > heifGuard &&
+    heifDecode > heifGuard && thumbFn.indexOf('return null', heifGuard) < heifDecode);
+
+  const decodeFn = (java.match(/private Bitmap decodeThumb\(Uri uri[\s\S]*?\n    \}/) || [''])[0];
+  const decPrimary = decodeFn.indexOf('decodeThumbImageDecoder(uri, max)');
+  const decHeifStop = decodeFn.indexOf('if (heif)');
+  const decFallback = decodeFn.indexOf('return decodeThumbFactory');
+  check('native thumb decodes HEIF through ImageDecoder on API 28+ and never retries it on BitmapFactory',
+    /boolean heif/.test(decodeFn) && decPrimary > 0 && decHeifStop > decPrimary &&
+    decFallback > decHeifStop &&
+    /return null/.test(decodeFn.slice(decHeifStop, decFallback)));
+
   await browser.close();
   server.close();
 
