@@ -238,6 +238,10 @@ function check(name, ok, detail) {
   });
   await thumbPage.goto(base, { waitUntil: 'load' });
   await thumbPage.waitForFunction(() => document.querySelectorAll('.tile img').length > 0, { timeout: 15000 });
+  /* The tiles exist as soon as they are laid out, but their images are still in flight; the loop
+     below only awaits inside its body, so counting before the first response lands measured 0/0
+     and failed the check at random. Wait for the first thumb response, then let the rest arrive. */
+  for (let i = 0; i < 100 && thumbRes.length === 0; i++) await new Promise((ok) => setTimeout(ok, 50));
   await settle(500);
   let lenOk = 0;
   const lenBad = [];
