@@ -487,6 +487,10 @@ public class MainActivity extends Activity {
             c = getContentResolver().query(base, proj, null, null,
                     MediaStore.MediaColumns.DATE_MODIFIED + " DESC");
             if (c == null) return;
+            /* Resolved once, before the row loop. Cursor.getColumnIndex walks the projection on
+               every call, so a lookup inside the loop would cost eight projection scans per
+               photo. tools/test_suite.js fails if a getColumnIndex reappears in any cursor
+               loop, or if a projected column stops being looked up. */
             int iId = c.getColumnIndexOrThrow(MediaStore.MediaColumns._ID);
             int iName = c.getColumnIndex(MediaStore.MediaColumns.DISPLAY_NAME);
             int iDate = c.getColumnIndex(MediaStore.MediaColumns.DATE_MODIFIED);

@@ -322,6 +322,46 @@ function check(name, ok, detail) {
     projCols.length > 0 && lookups.length === projCols.length && unlookedUp.length === 0 &&
     unread.length === 0);
 
+  /* 22. No Cursor.getColumnIndex inside a row loop. The lookup walks the projection on every
+         call, so hoisting it out of the loop is worth eight scans per photo; the query does that
+         today and this check keeps a lookup from creeping back into the loop, and keeps every
+         lookup ahead of the first moveToNext(). */
+  const cursorLoops = (() => {
+    const found = [];
+    const re = /(?:while|for)\s*\(/g;
+    let m;
+    while ((m = re.exec(java))) {
+      let i = m.index + m[0].length;
+      let depth = 1;
+      while (i < java.length && depth > 0) {
+        const ch = java[i];
+        if (ch === '(') depth++;
+        else if (ch === ')') depth--;
+        i++;
+      }
+      const header = java.slice(m.index, i);
+      if (!/moveToNext\(\)/.test(header)) continue;
+      let j = i;
+      while (j < java.length && /\s/.test(java[j])) j++;
+      if (java[j] !== '{') continue;
+      let d = 0;
+      let k = j;
+      for (; k < java.length; k++) {
+        if (java[k] === '{') d++;
+        else if (java[k] === '}') { d--; if (d === 0) { k++; break; } }
+      }
+      found.push({ start: m.index, body: java.slice(j, k) });
+    }
+    return found;
+  })();
+  const loopsWithLookup = cursorLoops.filter((l) => /getColumnIndex(?:OrThrow)?\(/.test(l.body));
+  const firstLoopAt = cursorLoops.length ? cursorLoops[0].start : -1;
+  const lookupPositions = [...java.matchAll(/int i\w+ = c\.getColumnIndex(?:OrThrow)?\(/g)].map((mm) => mm.index);
+  const lateLookups = firstLoopAt >= 0 ? lookupPositions.filter((p) => p > firstLoopAt) : lookupPositions;
+  check('native cursor loops hoist every getColumnIndex (' + cursorLoops.length + ' loop(s), ' +
+        lookupPositions.length + ' lookup(s))',
+    cursorLoops.length > 0 && loopsWithLookup.length === 0 && lateLookups.length === 0);
+
   await browser.close();
   server.close();
 
