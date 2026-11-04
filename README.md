@@ -13,9 +13,9 @@ A real, installable Android **photos** app — the liquid-glass UI from the orig
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.2.2, 114 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.2.3, 114 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.2.2 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.2.3 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -114,6 +114,27 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.2.3 — day 3 of the 20-day optimisation plan, sixth pass
+No UI change, no new features. Item 23 of the plan: a paging strategy for libraries over 6000
+items.
+- `queryOne()` used to ask MediaStore for the whole library in one cursor and stop reading after
+  6000 rows. The provider still had to build a cursor over every photo on the device, so a 40 000
+  photo library cost a full result set to deliver the newest 6000. It now reads in pages: each
+  query carries `QUERY_ARG_LIMIT` of 1000 rows and a `QUERY_ARG_OFFSET`, and the loop stops on the
+  first short page. The ceiling is the same `MEDIA_MAX_ITEMS = 6000` and the sort is the same
+  `DATE_MODIFIED DESC`, so the grid shows exactly the same photos in the same order.
+- Paging needs `ContentResolver` query args, which arrive in API 26, so below that the old single
+  capped query stands unchanged — API 24-25 devices behave exactly as before.
+- A page that throws still ends the read with a warning rather than retrying forever, and every
+  cursor is still closed in `finally`.
+- `tools/test_suite.js` gains a check that the constants, the query args and the short-page break
+  are all present (22 checks now).
+- Fixed a flaky check in the suite itself: "every thumb response sends Content-Length" reused
+  thumbnail URLs that earlier pages in the same browser had already cached, so no response event
+  fired and it counted 0/0. That page now runs with the cache disabled, which measures the
+  responses the app actually makes (60/60).
+- 22 checks in `tools/test_suite.js`, all PASS; `tools/test_ui.js` PASS on 240 photos.
 
 ### 1.2.2 — day 3 of the 20-day optimisation plan, fifth pass
 No UI change, no new features. Item 22 of the plan: `Cursor.getColumnIndex` stays outside the row
