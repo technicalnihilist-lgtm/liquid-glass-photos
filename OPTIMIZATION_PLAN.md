@@ -52,7 +52,7 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
 
 ## Day 3 — media query
 
-- [ ] 21. Project only the columns actually used (drop `_SIZE`/`WIDTH` where unused).
+- [x] 21. Project only the columns actually used (drop `_SIZE`/`WIDTH` where unused) — audited: all eight projected columns are consumed, so nothing was dropped; the projection is now documented column by column and a suite check fails on any projected-but-unread column. *(1.2.1)*
 - [ ] 22. Use `Cursor.getColumnIndex` once outside the row loop (already) — verify no repeated lookups.
 - [ ] 23. Add a `LIMIT`/paging strategy for libraries over 6000 items.
 - [ ] 24. Skip trashed/hidden media via the `IS_TRASHED` column on API 30+.
