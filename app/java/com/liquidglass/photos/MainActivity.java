@@ -453,6 +453,15 @@ public class MainActivity extends Activity {
                 MediaStore.MediaColumns.DATE_MODIFIED + " DESC");
         args.putInt(ContentResolver.QUERY_ARG_LIMIT, MEDIA_PAGE_SIZE);
         args.putInt(ContentResolver.QUERY_ARG_OFFSET, offset);
+        /* Recycle bin (API 30+): a trashed photo keeps its MediaStore row until the bin is
+           emptied, so the grid used to show pictures the user had already deleted. The provider
+           filters them out with one selection term, which costs nothing per row here and keeps
+           the 6000-row ceiling counting real photos instead of tombstones. Below API 30 there is
+           no IS_TRASHED column and no recycle bin, so the query is unchanged. */
+        if (Build.VERSION.SDK_INT >= 30) {
+            args.putString(ContentResolver.QUERY_ARG_SQL_SELECTION,
+                    MediaStore.MediaColumns.IS_TRASHED + " = 0");
+        }
         return args;
     }
 
