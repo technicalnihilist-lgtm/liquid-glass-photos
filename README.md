@@ -115,6 +115,24 @@ The APK ships with **no** sample media — it is empty until it reads your galle
 
 ## Changelog
 
+### 1.2.4 — day 3 of the 20-day optimisation plan, seventh pass
+No UI change, no new features. Item 24 of the plan: skip trashed media through the `IS_TRASHED`
+column on API 30+.
+- Android 11 added a recycle bin. A photo the user sends to the bin keeps its MediaStore row until
+  the bin is emptied, and that row was still being returned by the library query, so deleted
+  pictures sat in the grid. Each page query now carries a `QUERY_ARG_SQL_SELECTION` term of
+  `is_trashed = 0` on API 30+, which the provider applies before the `LIMIT`/`OFFSET`, so the
+  paging still returns 1000 usable rows per page and the 6000-row ceiling now counts real photos
+  instead of tombstones.
+- The filter costs nothing per row here: the provider drops the trashed rows while building the
+  cursor, so no extra column is projected and the row loop is untouched. Below API 30 there is no
+  `IS_TRASHED` column and no recycle bin, so the query is byte-for-byte what it was.
+- Fixed the last flaky check in the suite: "every thumb response sends Content-Length" counted the
+  responses as soon as the tiles were laid out, while their images were still in flight, so a fast
+  machine measured 0/0 and failed. It now waits for the first `/thumb/` response before counting
+  (60/60 on every run).
+- 22 checks in `tools/test_suite.js`, all PASS; `tools/test_ui.js` PASS on 240 photos.
+
 ### 1.2.3 — day 3 of the 20-day optimisation plan, sixth pass
 No UI change, no new features. Item 23 of the plan: a paging strategy for libraries over 6000
 items.
