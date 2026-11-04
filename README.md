@@ -13,9 +13,9 @@ A real, installable Android **photos** app — the liquid-glass UI from the orig
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.2.0, 114 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.2.1, 114 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.2.0 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.2.1 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -114,6 +114,22 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.2.1 — day 3 of the 20-day optimisation plan, fourth pass
+No UI change, no new features. Item 21 of the plan: the library query projects only the columns
+it reads.
+- `queryOne()` asked MediaStore for eight columns. This pass audited each one against its consumer
+  in the row loop and found every one of them live: `_ID` (identity, thumb URL, delete URI),
+  `DISPLAY_NAME` (name), `DATE_MODIFIED` (sort key, day grouping, disk-thumb stamp), `SIZE` (info
+  sheet and the `Content-Length` fallback when the provider reports no length), `MIME_TYPE`
+  (response type, HEIF test, share type), `WIDTH`/`HEIGHT` (the decode size hint and the info
+  sheet) and `bucket_display_name` (albums). Dropping any of them would have changed what the
+  info sheet shows, so nothing was dropped — the projection was already minimal.
+- What did change is that it can no longer drift: the projection is now commented column by column,
+  and a new check in `tools/test_suite.js` parses `proj` and fails if a projected column has no
+  `getColumnIndex` lookup, or if a lookup variable is declared and then never read. A dead column
+  is a per-row Cursor read paid for nothing, so it now breaks the suite instead of shipping.
+- 20 checks in `tools/test_suite.js`, all PASS; `tools/test_ui.js` PASS on 240 photos.
 
 ### 1.2.0 — day 2 of the 20-day optimisation plan, tenth pass
 No UI change, no new features. Item 20 of the plan: HEIC/HEIF decodes on API 28+ and is refused
