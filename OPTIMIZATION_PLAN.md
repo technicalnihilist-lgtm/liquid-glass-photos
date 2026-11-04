@@ -54,7 +54,7 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
 
 - [x] 21. Project only the columns actually used (drop `_SIZE`/`WIDTH` where unused) — audited: all eight projected columns are consumed, so nothing was dropped; the projection is now documented column by column and a suite check fails on any projected-but-unread column. *(1.2.1)*
 - [x] 22. Use `Cursor.getColumnIndex` once outside the row loop (already) — verified: the query does eight lookups before the first `moveToNext()` and none inside it; `tools/test_suite.js` now fails if a lookup reappears in any cursor loop or lands after the loop starts. *(1.2.2)*
-- [ ] 23. Add a `LIMIT`/paging strategy for libraries over 6000 items.
+- [x] 23. Add a `LIMIT`/paging strategy for libraries over 6000 items: 1000-row pages via `QUERY_ARG_LIMIT`/`QUERY_ARG_OFFSET` (API 26+, single capped query below it), stopping on the first short page, with the same 6000 ceiling and the same order. *(1.2.3)*
 - [ ] 24. Skip trashed/hidden media via the `IS_TRASHED` column on API 30+.
 - [ ] 25. Skip pending (`IS_PENDING=1`) items so half-written imports do not appear.
 - [ ] 26. Sort by `DATE_TAKEN` when available, `DATE_MODIFIED` otherwise.
