@@ -465,6 +465,13 @@ public class MainActivity extends Activity {
     }
 
     private void queryOne(List<Item> out, Uri base) {
+        /* Only the columns the row loop below actually consumes are projected: _ID (identity, the
+           thumb URL and the delete URI), DISPLAY_NAME (name), DATE_MODIFIED (sort key, grouping
+           and the disk-thumb stamp), SIZE (the info sheet and the Content-Length fallback when the
+           provider reports no length), MIME_TYPE (response type, HEIF test, share type), WIDTH and
+           HEIGHT (the decode size hint and the info sheet) and bucket_display_name (albums). Every
+           one of the eight is read; a column added here without a consumer would cost a Cursor
+           read per row for nothing. tools/test_suite.js enforces that pairing. */
         String[] proj = {
                 MediaStore.MediaColumns._ID,
                 MediaStore.MediaColumns.DISPLAY_NAME,
