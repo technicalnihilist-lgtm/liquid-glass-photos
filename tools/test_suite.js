@@ -231,6 +231,7 @@ function check(name, ok, detail) {
          on every /thumb/ hit, and the length must match the bytes actually delivered. */
   currentStub = stubFor(library(COUNT), 'true');
   const thumbPage = await browser.newPage();
+  await thumbPage.setCacheEnabled(false);   // force real responses: earlier pages already cached these URLs
   const thumbRes = [];
   thumbPage.on('response', (r) => {
     if (/\/thumb\/\d+$/.test(r.url())) thumbRes.push(r);
@@ -361,6 +362,24 @@ function check(name, ok, detail) {
   check('native cursor loops hoist every getColumnIndex (' + cursorLoops.length + ' loop(s), ' +
         lookupPositions.length + ' lookup(s))',
     cursorLoops.length > 0 && loopsWithLookup.length === 0 && lateLookups.length === 0);
+
+  /* 23. A library bigger than the cap is read a page at a time. Each query asks the provider for
+         one page of rows at an offset (API 26+, where the query args exist; below that the single
+         capped query stands) and the read stops on the first short page, so a 40 000-photo library
+         never lands in one CursorWindow. The ceiling itself is unchanged: the same 6000 newest
+         rows reach the grid, in the same order. */
+  const pageSize = (java.match(/MEDIA_PAGE_SIZE = (\d+)/) || [])[1];
+  const maxItems = (java.match(/MEDIA_MAX_ITEMS = (\d+)/) || [])[1];
+  const pageFn = (java.match(/private Bundle pageArgs\(int offset\)[\s\S]*?\n    \}/) || [''])[0];
+  check('native query pages large libraries instead of one whole-library cursor (' +
+        (pageSize || '?') + ' rows/page, cap ' + (maxItems || '?') + ')',
+    pageSize === '1000' && maxItems === '6000' &&
+    /QUERY_ARG_LIMIT, MEDIA_PAGE_SIZE/.test(pageFn) &&
+    /QUERY_ARG_OFFSET, offset/.test(pageFn) &&
+    /Build\.VERSION\.SDK_INT < 26\) return null/.test(pageFn) &&
+    /query\(base, proj, args, null\)/.test(queryFn) &&
+    /for \(int page = 0; out\.size\(\) < MEDIA_MAX_ITEMS; page\+\+\)/.test(queryFn) &&
+    /out\.size\(\) - before < MEDIA_PAGE_SIZE\) break;/.test(queryFn));
 
   await browser.close();
   server.close();
