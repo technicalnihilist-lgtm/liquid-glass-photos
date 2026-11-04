@@ -437,6 +437,25 @@ public class MainActivity extends Activity {
     private long cachedMediaAt = 0L;
     private static final long MEDIA_CACHE_MS = 1500L;
 
+    /* A library can hold far more than the app will show. The row ceiling below is unchanged (the
+       list a user sees is exactly the same), but the rows now arrive a page at a time: each query
+       asks the provider for MEDIA_PAGE_SIZE rows at an offset instead of materialising the whole
+       library in one CursorWindow, and the read stops as soon as a page comes back short. */
+    private static final int MEDIA_PAGE_SIZE = 1000;
+    private static final int MEDIA_MAX_ITEMS = 6000;
+
+    /** Query args for one page of the library, or null below API 26, where paging is unavailable
+     *  and the single capped query is used instead. */
+    private Bundle pageArgs(int offset) {
+        if (Build.VERSION.SDK_INT < 26) return null;
+        Bundle args = new Bundle();
+        args.putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER,
+                MediaStore.MediaColumns.DATE_MODIFIED + " DESC");
+        args.putInt(ContentResolver.QUERY_ARG_LIMIT, MEDIA_PAGE_SIZE);
+        args.putInt(ContentResolver.QUERY_ARG_OFFSET, offset);
+        return args;
+    }
+
     /** MediaStore is expensive; a resume right after a permission callback must not query twice. */
     private List<Item> queryMediaCached() {
         long now = System.currentTimeMillis();
@@ -482,43 +501,53 @@ public class MainActivity extends Activity {
                 MediaStore.MediaColumns.HEIGHT,
                 "bucket_display_name"
         };
-        Cursor c = null;
-        try {
-            c = getContentResolver().query(base, proj, null, null,
-                    MediaStore.MediaColumns.DATE_MODIFIED + " DESC");
-            if (c == null) return;
-            /* Resolved once, before the row loop. Cursor.getColumnIndex walks the projection on
-               every call, so a lookup inside the loop would cost eight projection scans per
-               photo. tools/test_suite.js fails if a getColumnIndex reappears in any cursor
-               loop, or if a projected column stops being looked up. */
-            int iId = c.getColumnIndexOrThrow(MediaStore.MediaColumns._ID);
-            int iName = c.getColumnIndex(MediaStore.MediaColumns.DISPLAY_NAME);
-            int iDate = c.getColumnIndex(MediaStore.MediaColumns.DATE_MODIFIED);
-            int iSize = c.getColumnIndex(MediaStore.MediaColumns.SIZE);
-            int iMime = c.getColumnIndex(MediaStore.MediaColumns.MIME_TYPE);
-            int iW = c.getColumnIndex(MediaStore.MediaColumns.WIDTH);
-            int iH = c.getColumnIndex(MediaStore.MediaColumns.HEIGHT);
-            int iB = c.getColumnIndex("bucket_display_name");
-            while (c.moveToNext() && out.size() < 6000) {
-                Item it = new Item();
-                it.id = c.getLong(iId);
-                it.name = iName >= 0 && !c.isNull(iName) ? c.getString(iName) : "IMG_" + it.id;
-                it.date = (iDate >= 0 && !c.isNull(iDate) ? c.getLong(iDate) : 0L) * 1000L;
-                it.size = iSize >= 0 && !c.isNull(iSize) ? c.getLong(iSize) : 0L;
-                it.mime = iMime >= 0 && !c.isNull(iMime) ? c.getString(iMime) : "image/jpeg";
-                it.w = iW >= 0 && !c.isNull(iW) ? c.getInt(iW) : 0;
-                it.h = iH >= 0 && !c.isNull(iH) ? c.getInt(iH) : 0;
-                it.bucket = iB >= 0 && !c.isNull(iB) ? c.getString(iB) : "";
-                out.add(it);
-                mimeCache.put(it.id, it.mime);
-                sizeCache.put(it.id, it.size);
-                if (it.w > 0 && it.h > 0) dimCache.put(it.id, new int[]{it.w, it.h});
-                if (it.date > 0) dateCache.put(it.id, it.date);
+        boolean paged = Build.VERSION.SDK_INT >= 26;
+        for (int page = 0; out.size() < MEDIA_MAX_ITEMS; page++) {
+            int before = out.size();
+            Bundle args = pageArgs(page * MEDIA_PAGE_SIZE);
+            Cursor c = null;
+            try {
+                c = args != null
+                        ? getContentResolver().query(base, proj, args, null)
+                        : getContentResolver().query(base, proj, null, null,
+                                MediaStore.MediaColumns.DATE_MODIFIED + " DESC");
+                if (c == null) return;
+                /* Resolved once, before the row loop. Cursor.getColumnIndex walks the projection on
+                   every call, so a lookup inside the loop would cost eight projection scans per
+                   photo. tools/test_suite.js fails if a getColumnIndex reappears in any cursor
+                   loop, or if a projected column stops being looked up. */
+                int iId = c.getColumnIndexOrThrow(MediaStore.MediaColumns._ID);
+                int iName = c.getColumnIndex(MediaStore.MediaColumns.DISPLAY_NAME);
+                int iDate = c.getColumnIndex(MediaStore.MediaColumns.DATE_MODIFIED);
+                int iSize = c.getColumnIndex(MediaStore.MediaColumns.SIZE);
+                int iMime = c.getColumnIndex(MediaStore.MediaColumns.MIME_TYPE);
+                int iW = c.getColumnIndex(MediaStore.MediaColumns.WIDTH);
+                int iH = c.getColumnIndex(MediaStore.MediaColumns.HEIGHT);
+                int iB = c.getColumnIndex("bucket_display_name");
+                while (c.moveToNext() && out.size() < MEDIA_MAX_ITEMS) {
+                    Item it = new Item();
+                    it.id = c.getLong(iId);
+                    it.name = iName >= 0 && !c.isNull(iName) ? c.getString(iName) : "IMG_" + it.id;
+                    it.date = (iDate >= 0 && !c.isNull(iDate) ? c.getLong(iDate) : 0L) * 1000L;
+                    it.size = iSize >= 0 && !c.isNull(iSize) ? c.getLong(iSize) : 0L;
+                    it.mime = iMime >= 0 && !c.isNull(iMime) ? c.getString(iMime) : "image/jpeg";
+                    it.w = iW >= 0 && !c.isNull(iW) ? c.getInt(iW) : 0;
+                    it.h = iH >= 0 && !c.isNull(iH) ? c.getInt(iH) : 0;
+                    it.bucket = iB >= 0 && !c.isNull(iB) ? c.getString(iB) : "";
+                    out.add(it);
+                    mimeCache.put(it.id, it.mime);
+                    sizeCache.put(it.id, it.size);
+                    if (it.w > 0 && it.h > 0) dimCache.put(it.id, new int[]{it.w, it.h});
+                    if (it.date > 0) dateCache.put(it.id, it.date);
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "query failed", e);
+                return;
+            } finally {
+                if (c != null) c.close();
             }
-        } catch (Exception e) {
-            Log.w(TAG, "query failed", e);
-        } finally {
-            if (c != null) c.close();
+            /* A short page is the end of the library; an unpaged query has nothing left to ask for. */
+            if (!paged || out.size() - before < MEDIA_PAGE_SIZE) break;
         }
     }
 
