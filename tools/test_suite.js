@@ -307,6 +307,21 @@ function check(name, ok, detail) {
     decFallback > decHeifStop &&
     /return null/.test(decodeFn.slice(decHeifStop, decFallback)));
 
+  /* 21. The MediaStore projection must carry only columns the row loop consumes: every projected
+         column needs its own getColumnIndex lookup, and every one of those lookup variables must
+         actually be read afterwards. A column projected but never consumed is a per-row Cursor
+         read paid for nothing, which is what this pass removed and what this check keeps out. */
+  const projBlock = (java.match(/String\[\] proj = \{([\s\S]*?)\};/) || [])[1] || '';
+  const projCols = [...projBlock.matchAll(/MediaStore\.MediaColumns\.(\w+)|"(\w+)"/g)].map((m) => m[1] || m[2]);
+  const queryFn = (java.match(/private void queryOne\(List<Item> out, Uri base\)[\s\S]*?\n    \}/) || [''])[0];
+  const lookups = [...queryFn.matchAll(/int (i\w+) = c\.getColumnIndex(?:OrThrow)?\(\s*(?:MediaStore\.MediaColumns\.(\w+)|"(\w+)")\s*\)/g)]
+    .map((m) => ({ v: m[1], col: m[2] || m[3] }));
+  const unlookedUp = projCols.filter((col) => !lookups.some((l) => l.col === col));
+  const unread = lookups.filter((l) => (queryFn.split(new RegExp('\\b' + l.v + '\\b')).length - 1) < 2);
+  check('native query projects only columns it reads (' + projCols.length + ' columns, ' + lookups.length + ' lookups)',
+    projCols.length > 0 && lookups.length === projCols.length && unlookedUp.length === 0 &&
+    unread.length === 0);
+
   await browser.close();
   server.close();
 
