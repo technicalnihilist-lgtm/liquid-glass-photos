@@ -56,7 +56,7 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
 - [x] 22. Use `Cursor.getColumnIndex` once outside the row loop (already) — verified: the query does eight lookups before the first `moveToNext()` and none inside it; `tools/test_suite.js` now fails if a lookup reappears in any cursor loop or lands after the loop starts. *(1.2.2)*
 - [x] 23. Add a `LIMIT`/paging strategy for libraries over 6000 items: 1000-row pages via `QUERY_ARG_LIMIT`/`QUERY_ARG_OFFSET` (API 26+, single capped query below it), stopping on the first short page, with the same 6000 ceiling and the same order. *(1.2.3)*
 - [x] 24. Skip trashed/hidden media via the `IS_TRASHED` column on API 30+ — done: on API 30+ every page query carries a `is_trashed = 0` selection term, so recycle-bin rows never reach the grid and the 6000-row ceiling counts real photos. *(1.2.4)*
-- [ ] 25. Skip pending (`IS_PENDING=1`) items so half-written imports do not appear.
+- [x] 25. Skip pending (`IS_PENDING=1`) items so half-written imports do not appear. *(1.2.5)*
 - [ ] 26. Sort by `DATE_TAKEN` when available, `DATE_MODIFIED` otherwise.
 - [ ] 27. Handle null `BUCKET_DISPLAY_NAME` without allocating a string per row.
 - [ ] 28. Close cursors in a `finally` on every path (audit).
