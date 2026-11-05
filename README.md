@@ -13,9 +13,9 @@ A real, installable Android **photos** app — the liquid-glass UI from the orig
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.2.3, 114 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.2.5, 114 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.2.3 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.2.5 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -114,6 +114,24 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.2.5 — day 3 of the 20-day optimisation plan, eighth pass
+No UI change, no new features. Item 25 of the plan: skip pending (`IS_PENDING=1`) media so a
+half-written import never appears.
+- The importer writes a MediaStore row with `IS_PENDING = 1`, copies the bytes, then clears the
+  flag. Until it does, the provider happily returns that row to a query, so a photo still being
+  written showed up in the grid as a blank or half-drawn tile, and its `/thumb/` request answered
+  404 because the file was not complete yet.
+- The page query now carries `is_pending = 0` on API 29+, where the column exists, ANDed onto the
+  existing `is_trashed = 0` term on API 30+. The provider filters both before the `LIMIT`/`OFFSET`,
+  so a page still returns 1000 usable rows and the 6000-row ceiling still counts real photos. The
+  projection, the sort and the row loop are untouched, and the pending row appears on the next
+  query once the import finishes.
+- Below API 29 there is no `IS_PENDING` column, so the selection is exactly what it was.
+- `tools/test_suite.js` gains a check that pins the selection order (`is_trashed = 0 AND
+  is_pending = 0`), the API gates and the fact that the pending term never leaks into the row loop
+  (23 checks now).
+- 23 checks in `tools/test_suite.js`, all PASS; `tools/test_ui.js` PASS on 240 photos.
 
 ### 1.2.4 — day 3 of the 20-day optimisation plan, seventh pass
 No UI change, no new features. Item 24 of the plan: skip trashed media through the `IS_TRASHED`
