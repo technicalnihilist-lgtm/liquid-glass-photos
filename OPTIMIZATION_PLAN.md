@@ -59,7 +59,13 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
 - [x] 25. Skip pending (`IS_PENDING=1`) items so half-written imports do not appear. *(1.2.5)*
 - [x] 26. Sort by `DATE_TAKEN` when available, `DATE_MODIFIED` otherwise — done: `DATE_TAKEN` is projected and read per row and wins when non-zero, `DATE_MODIFIED` (×1000) is the fallback for rows with no capture time, the provider sort string and the page ceiling are untouched so the same rows come back, and the disk-thumb stamp still keys on `DATE_MODIFIED`. *(1.2.6)*
 - [x] 27. Handle null `BUCKET_DISPLAY_NAME` without allocating a string per row — done: a row with no album points at one shared `EMPTY` constant and repeated album names are pooled on the first instance per query, so a 6000-row library holds a handful of bucket strings instead of 6000 and every row still carries the same value the grid, album filters and search read. *(1.2.7)*
-- [ ] 28. Close cursors in a `finally` on every path (audit).
+- [x] 28. Close cursors in a `finally` on every path (audit) — done: the library query's cursor is
+  declared outside the `try` so the `finally` can see it, and every exit — the provider's null
+  cursor, the caught per-row throw and its `return`, and the normal end of a page — unwinds
+  through that one `finally`; the close itself is now guarded so a provider that throws out of
+  `close()` cannot fail a page that has already been read, and `tools/test_suite.js` fails if a
+  `Cursor` is declared elsewhere, a `query()` appears outside the method, or a `close()` lands
+  outside a `finally`. *(1.2.8)*
 - [ ] 29. Avoid rebuilding the mime/size maps on every query.
 - [ ] 30. Log query duration behind `Log.isLoggable(DEBUG)`.
 
