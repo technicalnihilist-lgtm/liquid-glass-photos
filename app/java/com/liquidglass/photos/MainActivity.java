@@ -458,9 +458,23 @@ public class MainActivity extends Activity {
            filters them out with one selection term, which costs nothing per row here and keeps
            the 6000-row ceiling counting real photos instead of tombstones. Below API 30 there is
            no IS_TRASHED column and no recycle bin, so the query is unchanged. */
+        StringBuilder selection = new StringBuilder();
         if (Build.VERSION.SDK_INT >= 30) {
-            args.putString(ContentResolver.QUERY_ARG_SQL_SELECTION,
-                    MediaStore.MediaColumns.IS_TRASHED + " = 0");
+            selection.append(MediaStore.MediaColumns.IS_TRASHED).append(" = 0");
+        }
+        /* Pending imports (API 29+): the importer inserts a row with IS_PENDING = 1 and flips it
+           back to 0 only once the bytes are written, and the provider hands pending rows to a
+           query in the meantime. Those rows used to reach the grid as blank or half-drawn tiles
+           (and their thumbnail request returned nothing). One more selection term hides them until
+           the write completes; the projection, the order and the page ceiling are untouched, and
+           the row appears on the next query once the flag clears. Below API 29 there is no
+           IS_PENDING column, so the selection stays as it was. */
+        if (Build.VERSION.SDK_INT >= 29) {
+            if (selection.length() > 0) selection.append(" AND ");
+            selection.append(MediaStore.MediaColumns.IS_PENDING).append(" = 0");
+        }
+        if (selection.length() > 0) {
+            args.putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection.toString());
         }
         return args;
     }
