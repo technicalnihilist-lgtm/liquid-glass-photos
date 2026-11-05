@@ -13,9 +13,9 @@ A real, installable Android **photos** app — the liquid-glass UI from the orig
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.2.5, 114 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.2.6, 114 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.2.5 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.2.6 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -114,6 +114,29 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.2.6 — day 3 of the 20-day optimisation plan, ninth pass
+No UI change, no new features. Item 26 of the plan: sort by `DATE_TAKEN` when available,
+`DATE_MODIFIED` otherwise.
+- The library was ordered by `DATE_MODIFIED`, which is the file's timestamp, not the moment the
+  photo was taken. Any file that had been touched — edited, re-saved, restored from a backup,
+  copied off a card — carried a fresh modification time and jumped to the top of the grid, and its
+  day header said "Today" for a picture from 2019.
+- `DATE_TAKEN` is now projected alongside `DATE_MODIFIED` and read once per row, and it wins
+  whenever it is non-zero. Rows with no capture time (screenshots, downloads, imported files, older
+  media) fall back to `DATE_MODIFIED` exactly as before, so no photo loses a date and the order
+  stays total. Both columns are milliseconds once normalised: `DATE_TAKEN` already is,
+  `DATE_MODIFIED` is multiplied by 1000 as it always was.
+- The provider sort string is deliberately left as `DATE_MODIFIED DESC`. That column is never null
+  and the provider only accepts plain column names in a sort order, so paging and the 6000-row
+  ceiling still return exactly the rows they returned before — the capture date only reorders what
+  came back, in the comparator that already sorted on the effective date.
+- The on-disk thumbnail stays keyed on `DATE_MODIFIED` (kept in its own `modified` field), so an
+  edit still invalidates the cached thumb even though the capture date does not move.
+- `tools/test_suite.js` gains a check that pins the projection, the millisecond handling, the
+  fallback expression, the `modified`-keyed thumb stamp and the untouched provider sort (24 checks
+  now).
+- 24 checks in `tools/test_suite.js`, all PASS; `tools/test_ui.js` PASS on 240 photos.
 
 ### 1.2.5 — day 3 of the 20-day optimisation plan, eighth pass
 No UI change, no new features. Item 25 of the plan: skip pending (`IS_PENDING=1`) media so a

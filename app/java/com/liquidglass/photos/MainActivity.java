@@ -429,7 +429,11 @@ public class MainActivity extends Activity {
     private static class Item {
         long id;
         String name, bucket, mime;
-        long date, size;
+        /* date is the effective capture time the grid orders and groups by: DATE_TAKEN when the
+           provider has one, DATE_MODIFIED otherwise. modified is the raw DATE_MODIFIED stamp and
+           is kept separately, because the on-disk thumbnail is keyed on it (an edit rewrites the
+           file and must invalidate the cached thumb, while DATE_TAKEN does not move). */
+        long date, modified, size;
         int w, h;
     }
 
@@ -498,6 +502,11 @@ public class MainActivity extends Activity {
         List<Item> out = new ArrayList<>();
         if (!hasAccess()) return out;
         queryOne(out, MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
+        /* Newest first by capture time. The provider still orders the pages by DATE_MODIFIED,
+           because that column is never null and every term of the sort string it accepts is a
+           plain column name, so paging and the 6000-row ceiling keep returning exactly the rows
+           they returned before; the capture date only reorders what came back. The comparator
+           already sorted on the effective date, so this is where DATE_TAKEN wins when it exists. */
         Collections.sort(out, new Comparator<Item>() {
             public int compare(Item a, Item b) {
                 return Long.compare(b.date, a.date);
@@ -508,15 +517,20 @@ public class MainActivity extends Activity {
 
     private void queryOne(List<Item> out, Uri base) {
         /* Only the columns the row loop below actually consumes are projected: _ID (identity, the
-           thumb URL and the delete URI), DISPLAY_NAME (name), DATE_MODIFIED (sort key, grouping
-           and the disk-thumb stamp), SIZE (the info sheet and the Content-Length fallback when the
-           provider reports no length), MIME_TYPE (response type, HEIF test, share type), WIDTH and
-           HEIGHT (the decode size hint and the info sheet) and bucket_display_name (albums). Every
-           one of the eight is read; a column added here without a consumer would cost a Cursor
-           read per row for nothing. tools/test_suite.js enforces that pairing. */
+           thumb URL and the delete URI), DISPLAY_NAME (name), DATE_TAKEN (the capture time the
+           grid orders and groups by when the camera or the importer recorded one), DATE_MODIFIED
+           (the fallback sort key and the disk-thumb stamp), SIZE (the info sheet and the
+           Content-Length fallback when the provider reports no length), MIME_TYPE (response type,
+           HEIF test, share type), WIDTH and HEIGHT (the decode size hint and the info sheet) and
+           bucket_display_name (albums). Every one of the nine is read; a column added here without
+           a consumer would cost a Cursor read per row for nothing. tools/test_suite.js enforces
+           that pairing. DATE_TAKEN is read through MediaStore.MediaColumns, whose value is a
+           compile-time constant, so the projection is unchanged on API 24-28 where the field was
+           added later; the "datetaken" column itself has existed since API 1. */
         String[] proj = {
                 MediaStore.MediaColumns._ID,
                 MediaStore.MediaColumns.DISPLAY_NAME,
+                MediaStore.MediaColumns.DATE_TAKEN,
                 MediaStore.MediaColumns.DATE_MODIFIED,
                 MediaStore.MediaColumns.SIZE,
                 MediaStore.MediaColumns.MIME_TYPE,
@@ -541,6 +555,7 @@ public class MainActivity extends Activity {
                    loop, or if a projected column stops being looked up. */
                 int iId = c.getColumnIndexOrThrow(MediaStore.MediaColumns._ID);
                 int iName = c.getColumnIndex(MediaStore.MediaColumns.DISPLAY_NAME);
+                int iTaken = c.getColumnIndex(MediaStore.MediaColumns.DATE_TAKEN);
                 int iDate = c.getColumnIndex(MediaStore.MediaColumns.DATE_MODIFIED);
                 int iSize = c.getColumnIndex(MediaStore.MediaColumns.SIZE);
                 int iMime = c.getColumnIndex(MediaStore.MediaColumns.MIME_TYPE);
@@ -551,7 +566,13 @@ public class MainActivity extends Activity {
                     Item it = new Item();
                     it.id = c.getLong(iId);
                     it.name = iName >= 0 && !c.isNull(iName) ? c.getString(iName) : "IMG_" + it.id;
-                    it.date = (iDate >= 0 && !c.isNull(iDate) ? c.getLong(iDate) : 0L) * 1000L;
+                    /* DATE_TAKEN is already milliseconds; DATE_MODIFIED is seconds. A row with no
+                       capture time (0 or null: screenshots, downloads, imports, older media) keeps
+                       the modified stamp, so nothing loses a date and the order stays total. */
+                    long takenMs = iTaken >= 0 && !c.isNull(iTaken) ? c.getLong(iTaken) : 0L;
+                    long modifiedMs = (iDate >= 0 && !c.isNull(iDate) ? c.getLong(iDate) : 0L) * 1000L;
+                    it.modified = modifiedMs;
+                    it.date = takenMs > 0 ? takenMs : modifiedMs;
                     it.size = iSize >= 0 && !c.isNull(iSize) ? c.getLong(iSize) : 0L;
                     it.mime = iMime >= 0 && !c.isNull(iMime) ? c.getString(iMime) : "image/jpeg";
                     it.w = iW >= 0 && !c.isNull(iW) ? c.getInt(iW) : 0;
@@ -561,7 +582,7 @@ public class MainActivity extends Activity {
                     mimeCache.put(it.id, it.mime);
                     sizeCache.put(it.id, it.size);
                     if (it.w > 0 && it.h > 0) dimCache.put(it.id, new int[]{it.w, it.h});
-                    if (it.date > 0) dateCache.put(it.id, it.date);
+                    if (it.modified > 0) dateCache.put(it.id, it.modified);
                 }
             } catch (Exception e) {
                 Log.w(TAG, "query failed", e);

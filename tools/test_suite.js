@@ -397,6 +397,27 @@ function check(name, ok, detail) {
     pageFn.indexOf('IS_TRASHED') < pageFn.indexOf('IS_PENDING') &&
     !/IS_PENDING[\s\S]*MediaColumns\.WIDTH/.test(queryFn));
 
+  /* 26. The grid orders by capture time, not by file-modification time. A photo whose file was
+         touched (edited, re-saved, restored, copied) used to jump to the top of the library even
+         though it was taken years ago, because DATE_MODIFIED was the only date read. DATE_TAKEN is
+         now projected and read alongside it and wins whenever it is non-zero; DATE_MODIFIED stays
+         the fallback (screenshots, downloads, imports and older media have no capture time) and
+         stays the disk-thumb stamp, since an edit moves it and a capture time does not. The
+         provider sort string is deliberately still DATE_MODIFIED: it is never null and the provider
+         only accepts plain column names there, so paging and the 6000-row ceiling return exactly
+         the rows they returned before and the capture date only reorders them. */
+  const itemClass = (java.match(/private static class Item \{[\s\S]*?\n    \}/) || [''])[0];
+  check('native query sorts by DATE_TAKEN with a DATE_MODIFIED fallback',
+    /MediaStore\.MediaColumns\.DATE_TAKEN,/.test(projBlock) &&
+    /int iTaken = c\.getColumnIndex\(MediaStore\.MediaColumns\.DATE_TAKEN\);/.test(queryFn) &&
+    /takenMs > 0 \? takenMs : modifiedMs/.test(queryFn) &&
+    /c\.getLong\(iDate\) : 0L\) \* 1000L/.test(queryFn) &&
+    !/getLong\(iTaken\)[^;]*\* 1000L/.test(queryFn) &&
+    /dateCache\.put\(it\.id, it\.modified\)/.test(queryFn) &&
+    /long date, modified, size;/.test(itemClass) &&
+    /Long\.compare\(b\.date, a\.date\)/.test(java) &&
+    /QUERY_ARG_SQL_SORT_ORDER,\s*\n?\s*MediaStore\.MediaColumns\.DATE_MODIFIED \+ " DESC"/.test(pageFn));
+
   await browser.close();
   server.close();
 
