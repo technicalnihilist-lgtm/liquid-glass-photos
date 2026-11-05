@@ -610,7 +610,17 @@ public class MainActivity extends Activity {
                 Log.w(TAG, "query failed", e);
                 return;
             } finally {
-                if (c != null) c.close();
+                /* Every exit from the try above lands here — the null-cursor return, the caught
+                   per-row failure and the return it takes, and the normal end of the page — so the
+                   cursor is closed on every path and its CursorWindow and provider fd are never
+                   leaked. The close is guarded in turn: a provider that throws out of close() must
+                   not turn a page that has already been read into a failed query. */
+                if (c != null) {
+                    try {
+                        c.close();
+                    } catch (Exception ignored) {
+                    }
+                }
             }
             /* A short page is the end of the library; an unpaged query has nothing left to ask for. */
             if (!paged || out.size() - before < MEDIA_PAGE_SIZE) break;
