@@ -418,6 +418,23 @@ function check(name, ok, detail) {
     /Long\.compare\(b\.date, a\.date\)/.test(java) &&
     /QUERY_ARG_SQL_SORT_ORDER,\s*\n?\s*MediaStore\.MediaColumns\.DATE_MODIFIED \+ " DESC"/.test(pageFn));
 
+  /* 27. A row with no BUCKET_DISPLAY_NAME costs nothing, and rows that share an album share one
+         String. The provider returns null for rows it has no album for, and a freshly allocated
+         String for every other row even when a thousand of them name the same album, so a 6000-row
+         library used to hold 6000 bucket strings. The row loop now points a null bucket at one
+         shared EMPTY constant and pools a repeated album name on the first instance seen, so the
+         same values reach the JSON with a handful of strings behind them. */
+  const rowLoop = cursorLoops.length ? cursorLoops[0].body : '';
+  check('native query pools bucket names and points a null bucket at one shared constant',
+    /private static final String EMPTY = "";/.test(java) &&
+    /Map<String, String> bucketPool = new HashMap<String, String>\(\);\s*bucketPool\.put\(EMPTY, EMPTY\);/.test(queryFn) &&
+    /if \(iB < 0 \|\| c\.isNull\(iB\)\) \{\s*it\.bucket = EMPTY;/.test(rowLoop) &&
+    /bucketPool\.get\(raw\)/.test(rowLoop) &&
+    /bucketPool\.put\(raw, raw\)/.test(rowLoop) &&
+    /it\.bucket = pooled;/.test(rowLoop) &&
+    !/\? c\.getString\(iB\) : ""/.test(rowLoop) &&
+    !/new String\(/.test(rowLoop));
+
   await browser.close();
   server.close();
 

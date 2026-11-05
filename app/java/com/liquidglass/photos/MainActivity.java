@@ -67,6 +67,9 @@ public class MainActivity extends Activity {
 
     private static final String TAG = "LGP";
     private static final String HOST = "https://app.local/";
+    /* One shared empty string. A row whose BUCKET_DISPLAY_NAME is null points at this constant
+       instead of a fresh literal, so a library of rows with no album allocates nothing. */
+    private static final String EMPTY = "";
     private static final int REQ_PERM = 1001;
     private static final int REQ_DEL = 1002;
     private static final int REQ_PICK = 1003;
@@ -562,6 +565,15 @@ public class MainActivity extends Activity {
                 int iW = c.getColumnIndex(MediaStore.MediaColumns.WIDTH);
                 int iH = c.getColumnIndex(MediaStore.MediaColumns.HEIGHT);
                 int iB = c.getColumnIndex("bucket_display_name");
+                /* BUCKET_DISPLAY_NAME is null on rows the provider has no album for (and on some
+                   importers), and the provider hands back a freshly allocated String for every
+                   row even when a thousand rows name the same album. Rows with no bucket now
+                   share the EMPTY constant, and every repeated album name shares the first
+                   instance seen in this query, so a 6000-row library holds a handful of bucket
+                   strings instead of 6000. The value each row carries is unchanged, so the grid,
+                   the album filters and the search haystack read exactly what they read before. */
+                Map<String, String> bucketPool = new HashMap<String, String>();
+                bucketPool.put(EMPTY, EMPTY);
                 while (c.moveToNext() && out.size() < MEDIA_MAX_ITEMS) {
                     Item it = new Item();
                     it.id = c.getLong(iId);
@@ -577,7 +589,17 @@ public class MainActivity extends Activity {
                     it.mime = iMime >= 0 && !c.isNull(iMime) ? c.getString(iMime) : "image/jpeg";
                     it.w = iW >= 0 && !c.isNull(iW) ? c.getInt(iW) : 0;
                     it.h = iH >= 0 && !c.isNull(iH) ? c.getInt(iH) : 0;
-                    it.bucket = iB >= 0 && !c.isNull(iB) ? c.getString(iB) : "";
+                    if (iB < 0 || c.isNull(iB)) {
+                        it.bucket = EMPTY;
+                    } else {
+                        String raw = c.getString(iB);
+                        String pooled = bucketPool.get(raw);
+                        if (pooled == null) {
+                            bucketPool.put(raw, raw);
+                            pooled = raw;
+                        }
+                        it.bucket = pooled;
+                    }
                     out.add(it);
                     mimeCache.put(it.id, it.mime);
                     sizeCache.put(it.id, it.size);

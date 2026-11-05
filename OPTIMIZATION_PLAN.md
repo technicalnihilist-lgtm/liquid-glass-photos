@@ -58,7 +58,7 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
 - [x] 24. Skip trashed/hidden media via the `IS_TRASHED` column on API 30+ — done: on API 30+ every page query carries a `is_trashed = 0` selection term, so recycle-bin rows never reach the grid and the 6000-row ceiling counts real photos. *(1.2.4)*
 - [x] 25. Skip pending (`IS_PENDING=1`) items so half-written imports do not appear. *(1.2.5)*
 - [x] 26. Sort by `DATE_TAKEN` when available, `DATE_MODIFIED` otherwise — done: `DATE_TAKEN` is projected and read per row and wins when non-zero, `DATE_MODIFIED` (×1000) is the fallback for rows with no capture time, the provider sort string and the page ceiling are untouched so the same rows come back, and the disk-thumb stamp still keys on `DATE_MODIFIED`. *(1.2.6)*
-- [ ] 27. Handle null `BUCKET_DISPLAY_NAME` without allocating a string per row.
+- [x] 27. Handle null `BUCKET_DISPLAY_NAME` without allocating a string per row — done: a row with no album points at one shared `EMPTY` constant and repeated album names are pooled on the first instance per query, so a 6000-row library holds a handful of bucket strings instead of 6000 and every row still carries the same value the grid, album filters and search read. *(1.2.7)*
 - [ ] 28. Close cursors in a `finally` on every path (audit).
 - [ ] 29. Avoid rebuilding the mime/size maps on every query.
 - [ ] 30. Log query duration behind `Log.isLoggable(DEBUG)`.
