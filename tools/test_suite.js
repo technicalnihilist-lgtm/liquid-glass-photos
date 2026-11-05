@@ -385,6 +385,18 @@ function check(name, ok, detail) {
     /for \(int page = 0; out\.size\(\) < MEDIA_MAX_ITEMS; page\+\+\)/.test(queryFn) &&
     /out\.size\(\) - before < MEDIA_PAGE_SIZE\) break;/.test(queryFn));
 
+  /* 25. Half-written imports stay out of the grid. The importer inserts a MediaStore row with
+         IS_PENDING = 1 and clears it only once the bytes are on disk, and the provider hands
+         pending rows to a query in between, so they used to reach the grid as blank tiles. Every
+         page query now carries `is_pending = 0` on API 29+, ANDed onto the trash term on API 30+.
+         The projection, the sort and the page ceiling are untouched. */
+  check('native query hides pending imports on API 29+ (selection is_trashed = 0 AND is_pending = 0)',
+    /SDK_INT >= 30\) \{[\s\S]*IS_TRASHED\)\.append\(" = 0"\)/.test(pageFn) &&
+    /SDK_INT >= 29\) \{[\s\S]*selection\.append\(" AND "\)[\s\S]*IS_PENDING\)\.append\(" = 0"\)/.test(pageFn) &&
+    /selection\.length\(\) > 0\) \{\n            args\.putString\(ContentResolver\.QUERY_ARG_SQL_SELECTION, selection\.toString\(\)\);/.test(pageFn) &&
+    pageFn.indexOf('IS_TRASHED') < pageFn.indexOf('IS_PENDING') &&
+    !/IS_PENDING[\s\S]*MediaColumns\.WIDTH/.test(queryFn));
+
   await browser.close();
   server.close();
 
