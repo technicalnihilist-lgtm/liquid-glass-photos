@@ -13,9 +13,9 @@ A real, installable Android **photos** app — the liquid-glass UI from the orig
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.2.7, 114 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.2.8, 114 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.2.7 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.2.8 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -114,6 +114,22 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.2.8 — day 3 of the 20-day optimisation plan, eleventh pass
+No UI change, no new features. Item 28 of the plan: close cursors in a `finally` on every path.
+- The library query holds one `Cursor` per page, and a leaked one leaks a `CursorWindow` and a
+  provider-side file descriptor with it. The audit walked every exit from the page: the provider
+  handing back a null cursor, a row that throws mid-read, a `getColumnIndexOrThrow` failing after
+  the window is open, and the plain early return at the end of the page. All of them unwind through
+  the same `finally`, which sits outside the `try` and therefore sees the cursor whichever way the
+  page ends.
+- The close itself is now guarded: a provider that throws out of `close()` used to escape the
+  `finally` and turn a page that had already been read into a failed query, so the close is wrapped
+  and its failure dropped, the way the other stream closes in the bridge already are.
+- `tools/test_suite.js` gains a check that pins the shape: exactly one `Cursor` in the file, declared
+  before the `try`; every `query()` call inside that one method; the row loop inside the `try`; and
+  no `close()` anywhere outside a `finally` (26 checks now).
+- 26 checks in `tools/test_suite.js`, all PASS; `tools/test_ui.js` all PASS.
 
 ### 1.2.7 — day 3 of the 20-day optimisation plan, tenth pass
 No UI change, no new features. Item 27 of the plan: handle a null `BUCKET_DISPLAY_NAME` without
