@@ -435,6 +435,51 @@ function check(name, ok, detail) {
     !/\? c\.getString\(iB\) : ""/.test(rowLoop) &&
     !/new String\(/.test(rowLoop));
 
+  /* 28. The library cursor is closed in a finally, on every path. A Cursor holds a CursorWindow
+         and a provider-side file descriptor, and the paths that leak one are the ones that are
+         easiest to forget: the null cursor the provider hands back, the per-row throw, the
+         getColumnIndexOrThrow that fails after the window is open, and the plain early return.
+         The audit confirms each of them unwinds through the same finally: the cursor is declared
+         outside the try so the finally can see it, the row loop sits inside the try, every
+         query() in the file is that one site, and no close() anywhere in the file sits outside a
+         finally. The close itself is guarded, so a provider that throws out of close() cannot
+         turn a page that has already been read into a failed query. */
+  const finallySpans = (() => {
+    const spans = [];
+    for (const m of java.matchAll(/finally\s*\{/g)) {
+      let i = m.index + m[0].length;
+      let d = 1;
+      while (i < java.length && d > 0) {
+        if (java[i] === '{') d++;
+        else if (java[i] === '}') d--;
+        i++;
+      }
+      spans.push([m.index, i]);
+    }
+    return spans;
+  })();
+  const cursorDecls = [...java.matchAll(/\bCursor\s+\w+\s*=/g)].map((m) => m.index);
+  const openSites = [...java.matchAll(/getContentResolver\(\)\.query\(/g)].map((m) => m.index);
+  const closeSites = [...java.matchAll(/\bc\.close\(\)/g)].map((m) => m.index);
+  const unguardedCloses = closeSites.filter((p) => !finallySpans.some(([a, b]) => p > a && p < b));
+  /* queryFn is a slice, so its try/finally offsets are shifted back onto the whole file before
+     they are compared with anything found in java. */
+  const qStart = java.indexOf('private void queryOne(');
+  const qEnd = java.indexOf('private String itemsJson(');
+  const qTry = qStart + queryFn.indexOf('try {');
+  const qFinally = qStart + queryFn.search(/finally\s*\{/);
+  check('native cursor is closed in a finally on every path (' + closeSites.length + ' close site(s), ' +
+        openSites.length + ' query site(s), ' + cursorDecls.length + ' cursor(s))',
+    cursorDecls.length === 1 && openSites.length > 0 && closeSites.length > 0 &&
+    unguardedCloses.length === 0 &&
+    qStart > 0 && qEnd > qStart &&
+    cursorDecls[0] > qStart && cursorDecls[0] < qTry &&
+    /Cursor c = null;\s*try \{/.test(queryFn) &&
+    qTry > qStart && qFinally > qTry && qFinally < qEnd &&
+    cursorLoops.length > 0 && cursorLoops[0].start > qTry && cursorLoops[0].start < qFinally &&
+    /finally \{\s*(?:\/\*[\s\S]*?\*\/\s*)?if \(c != null\) \{\s*try \{\s*c\.close\(\);\s*\} catch \(Exception ignored\) \{\s*\}\s*\}\s*\}/.test(queryFn) &&
+    openSites.every((p) => p > qStart && p < qEnd));
+
   await browser.close();
   server.close();
 
