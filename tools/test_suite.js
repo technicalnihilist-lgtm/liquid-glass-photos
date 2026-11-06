@@ -262,7 +262,12 @@ function check(name, ok, detail) {
   const thumbBranch = (java.match(/if \(path\.startsWith\("\/thumb\/"\)\)[\s\S]*?new ByteArrayInputStream\(bytes\)\);/) || [''])[0];
   const notFoundFn = (java.match(/private WebResourceResponse notFound\(\)[\s\S]*?\n    \}/) || [''])[0];
   check('native thumb 200 sets Content-Length', /h\.put\("Content-Length", String\.valueOf\(bytes\.length\)\)/.test(thumbBranch));
-  check('native thumb 404 sets Content-Length 0', /h\.put\("Content-Length", "0"\)/.test(notFoundFn));
+  /* 31. the 404's headers are identical for every failure, so they live in one shared map
+         instead of a fresh HashMap per failed request; the header values must not change. */
+  const notFoundHeaders = (java.match(/private static final Map<String, String> NOT_FOUND_HEADERS =\s*([\s\S]*?);/) || ['', ''])[1];
+  check('native thumb 404 sets Content-Length 0',
+    /"Content-Length", "0"/.test(notFoundHeaders) && /"Cache-Control", "no-store"/.test(notFoundHeaders) &&
+    /NOT_FOUND_HEADERS/.test(notFoundFn));
 
   /* 15. corrupt media is skipped rather than upscaled into a 1x1 tile: the decode path must refuse
          anything whose longest side is under the 48 px floor, and refuse it before it scales,
@@ -514,6 +519,27 @@ function check(name, ok, detail) {
     queryMediaFn.indexOf('boolean trace = Log.isLoggable') <
     queryMediaFn.indexOf('long queryStart = trace ?') &&
     queryMediaFn.indexOf('long queryStart = trace ?') < queryMediaFn.indexOf('queryOne(out'));
+
+  /* 31. Reuse one WebResourceResponse header map where it is safe. Every 404 and every asset
+         response used to allocate a HashMap and put the same two or three constants into it, on
+         the request thread, once per request — a launch pays that for index.html and again for
+         each miss. Those shapes now share one unmodifiable map per response type, built once;
+         a shared map is only safe because nothing can write to it after it is published, so the
+         responses whose headers depend on the request (a thumb's Content-Length, a media
+         range's Content-Range) must still build their own. */
+  const assetFn = (java.match(/private WebResourceResponse asset\(String path\)[\s\S]*?\n    \}/) || [''])[0];
+  const streamFn = (java.match(/private WebResourceResponse streamMedia\(long id[\s\S]*?\n    \}/) || [''])[0];
+  const fixedFn = (java.match(/private static Map<String, String> fixedHeaders\(String\.\.\. kv\)[\s\S]*?\n    \}/) || [''])[0];
+  check('native reuses one immutable header map per fixed response shape',
+    /private static final Map<String, String> NOT_FOUND_HEADERS =/.test(java) &&
+    /private static final Map<String, Map<String, String>> ASSET_HEADERS = assetHeaders\(\);/.test(java) &&
+    /Collections\.unmodifiableMap\(h\)/.test(fixedFn) &&
+    !/new HashMap</.test(notFoundFn) && /NOT_FOUND_HEADERS/.test(notFoundFn) &&
+    !/new HashMap</.test(assetFn) && /ASSET_HEADERS\.get\(mime\)/.test(assetFn) &&
+    /Map<String, String> h = mediaHeaders\(mime\);/.test(streamFn) &&
+    /MEDIA_HEADERS\.put\(mime, h\)/.test(java) &&
+    /Map<String, String> lh = new HashMap<String, String>\(h\);/.test(streamFn) &&
+    /Map<String, String> rh = new HashMap<String, String>\(h\);/.test(streamFn));
 
   await browser.close();
   server.close();
