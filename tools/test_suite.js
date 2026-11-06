@@ -480,6 +480,25 @@ function check(name, ok, detail) {
     /finally \{\s*(?:\/\*[\s\S]*?\*\/\s*)?if \(c != null\) \{\s*try \{\s*c\.close\(\);\s*\} catch \(Exception ignored\) \{\s*\}\s*\}\s*\}/.test(queryFn) &&
     openSites.every((p) => p > qStart && p < qEnd));
 
+  /* 29. A rescan does not rewrite the mime/size maps. The two id-keyed maps behind the thumb
+         response, the info sheet and the share type used to be filled row by row on every query —
+         two boxed puts, and the occasional resize and rehash, per photo even when nothing in the
+         library had changed. The row loop now hands the pair to rememberMeta(), which writes only
+         the entry whose value actually differs, so a refresh over an unchanged library performs
+         no map writes at all, and each map is capped so an ever-growing library cannot grow it
+         forever. dateCache keeps its unconditional put: an edited photo must still restamp. */
+  const metaFn = (java.match(/private void rememberMeta\(long id, String mime, long size\)[\s\S]*?\n    \}/) || [''])[0];
+  check('native query writes the mime/size maps only when a row changed, and bounds them',
+    /private static final int MEDIA_META_CACHE_MAX = 2 \* 6000;/.test(java) &&
+    /rememberMeta\(it\.id, it\.mime, it\.size\);/.test(rowLoop) &&
+    !/mimeCache\.put\(it\.id, it\.mime\)/.test(rowLoop) &&
+    !/sizeCache\.put\(it\.id, it\.size\)/.test(rowLoop) &&
+    /oldMime == null \|\| !oldMime\.equals\(mime\)/.test(metaFn) &&
+    /oldSize == null \|\| oldSize\.longValue\(\) != size/.test(metaFn) &&
+    /mimeCache\.size\(\) >= MEDIA_META_CACHE_MAX\) mimeCache\.clear\(\);/.test(metaFn) &&
+    /sizeCache\.size\(\) >= MEDIA_META_CACHE_MAX\) sizeCache\.clear\(\);/.test(metaFn) &&
+    /dateCache\.put\(it\.id, it\.modified\)/.test(rowLoop));
+
   await browser.close();
   server.close();
 
