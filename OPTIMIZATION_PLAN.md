@@ -71,7 +71,7 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
 
 ## Day 4 — WebView plumbing
 
-- [ ] 31. Reuse a single `WebResourceResponse` header map where safe.
+- [x] 31. Reuse a single `WebResourceResponse` header map where safe — done: the shapes whose headers never vary now share one map each, built once at class load and wrapped in `Collections.unmodifiableMap` before publication (the WebView reads headers off the UI thread, so a map may only be shared when nothing can write to it afterwards): every 404 reuses `NOT_FOUND_HEADERS` (`Cache-Control: no-store`, `Content-Length: 0`), `asset()` reuses the `ASSET_HEADERS` entry for its mime (all seven mimes the extension table can produce are prebuilt), and media reuses one base map per mime from `MEDIA_HEADERS` (`Accept-Ranges`, `Content-Type`, `Cache-Control`). A launch no longer allocates a `HashMap` for `index.html` or for any miss that falls through to the 404. The responses that genuinely depend on the request — a thumb's `Content-Length`, a media range's `Content-Range`/`Content-Length` — copy the shared base instead of writing to it, so no map is ever mutated after it is handed to a response; every status code, header value and body is unchanged. `tools/test_suite.js` fails if a fixed shape allocates a `HashMap` again, if the shared maps stop being unmodifiable, or if the varying paths start writing into the shared base. *(1.3.1)*
 - [ ] 32. Add `shouldInterceptRequest` fast path for `favicon.ico` (return 204).
 - [ ] 33. Verify no request leaks file descriptors after 200 media loads.
 - [ ] 34. Set `WebSettings.setOffscreenPreRaster(false)` for memory.
