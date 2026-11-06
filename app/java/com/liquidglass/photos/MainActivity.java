@@ -507,6 +507,14 @@ public class MainActivity extends Activity {
     private List<Item> queryMedia() {
         List<Item> out = new ArrayList<>();
         if (!hasAccess()) return out;
+        /* How long the provider takes is the number that separates a slow first frame caused by
+           MediaStore from one caused by the decode path, and it is the one measurement that is
+           missing from a bug report. It is only measured and printed when someone has switched
+           debug logging on for this tag (adb shell setprop log.tag.LGP DEBUG): the guard is a
+           single boolean read, so a normal run pays no System.nanoTime call, no string
+           concatenation and no log line — the query path itself is untouched. */
+        boolean trace = Log.isLoggable(TAG, Log.DEBUG);
+        long queryStart = trace ? System.nanoTime() : 0L;
         queryOne(out, MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
         /* Newest first by capture time. The provider still orders the pages by DATE_MODIFIED,
            because that column is never null and every term of the sort string it accepts is a
@@ -518,6 +526,10 @@ public class MainActivity extends Activity {
                 return Long.compare(b.date, a.date);
             }
         });
+        if (trace) {
+            Log.d(TAG, "query " + out.size() + " rows in "
+                    + ((System.nanoTime() - queryStart) / 1000000L) + " ms");
+        }
         return out;
     }
 
