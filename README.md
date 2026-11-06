@@ -13,9 +13,9 @@ A real, installable Android **photos** app — the liquid-glass UI from the orig
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.2.8, 114 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.3.0, 114 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.2.8 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.3.0 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -114,6 +114,22 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.3.0 — day 4 of the 20-day optimisation plan, twelfth pass
+No UI change, no new features. Item 30 of the plan: log the query duration behind
+`Log.isLoggable(DEBUG)`.
+- The MediaStore scan is the one part of the first frame that was never measured, which makes a
+  slow cold start ambiguous: it could be the provider walking a 6000-row library, or the decode
+  path behind it. `queryMedia()` now reads `Log.isLoggable(TAG, Log.DEBUG)` once and, only when
+  debug logging is on, takes a `System.nanoTime()` before `queryOne()` and prints a single
+  `Log.d` line — `query 1234 rows in 87 ms` — after the sort.
+- The guard is the whole point: a normal run does one boolean read, no clock call, no string
+  concatenation and no log line, and the query, its projection, its paging and its order are
+  byte-for-byte unchanged. Turn it on with
+  `adb shell setprop log.tag.LGP DEBUG`.
+- `tools/test_suite.js` gains a check that the clock read and the log line both sit inside the
+  guard and that no second unguarded `Log.d` exists anywhere in the bridge (28 checks now).
+- 28 checks in `tools/test_suite.js`, all PASS; `tools/test_ui.js` all PASS.
 
 ### 1.2.8 — day 3 of the 20-day optimisation plan, eleventh pass
 No UI change, no new features. Item 28 of the plan: close cursors in a `finally` on every path.
