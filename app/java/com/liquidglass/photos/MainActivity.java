@@ -336,6 +336,7 @@ public class MainActivity extends Activity {
         s.setBuiltInZoomControls(false);
         s.setTextZoom(100);
         s.setCacheMode(WebSettings.LOAD_NO_CACHE);
+        s.setOffscreenPreRaster(false);
         if (Build.VERSION.SDK_INT >= 26) s.setSafeBrowsingEnabled(false);
 
         web.addJavascriptInterface(new Bridge(), "AndroidNative");
