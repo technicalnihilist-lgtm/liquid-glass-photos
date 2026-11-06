@@ -91,6 +91,10 @@ public class MainActivity extends Activity {
        (a thumb's Content-Length, a media range's Content-Range) still build their own map. */
     private static final Map<String, String> NOT_FOUND_HEADERS =
             fixedHeaders("Cache-Control", "no-store", "Content-Length", "0");
+    /* The 204 that answers a favicon request: no body, no content type, and the same pair of
+       headers every time, so it shares one unmodifiable map like the shapes above. */
+    private static final Map<String, String> NO_CONTENT_HEADERS =
+            fixedHeaders("Cache-Control", "no-store", "Content-Length", "0");
     /* asset() can only answer with one of these mimes, so each gets its map at class load and
        every asset response shares it — index.html on launch, and the 404 fallback that serves it
        for an unknown path, stop allocating a HashMap per request. */
@@ -926,6 +930,12 @@ public class MainActivity extends Activity {
             if (u == null || !"app.local".equals(u.getHost())) return null;
             String path = u.getPath() == null ? "/" : u.getPath();
             try {
+                /* Chromium asks for /favicon.ico on the first paint and the app ships no icon, so
+                   the request used to miss the asset table and fall through to the index.html
+                   fallback: the whole app was opened, streamed back and thrown away as an icon, on
+                   every launch and every reload. A 204 is the answer a browser already gives for a
+                   site with no icon, and it is decided here before any asset lookup. */
+                if ("/favicon.ico".equals(path)) return noContent();
                 if (path.startsWith("/thumb/")) {
                     String rest = path.substring(7);
                     long id = Long.parseLong(rest);
@@ -1005,6 +1015,14 @@ public class MainActivity extends Activity {
            a failed decode still says nothing durable about the photo, so it is still no-store. */
         return new WebResourceResponse("text/plain", "utf-8", 404, "Not Found",
                 NOT_FOUND_HEADERS, new ByteArrayInputStream(new byte[0]));
+    }
+
+    private WebResourceResponse noContent() {
+        /* 204 carries no body, so there is nothing to type and nothing to cache: the icon does
+           not exist and must not be remembered as if it did. The header pair never varies, so it
+           reuses NO_CONTENT_HEADERS instead of allocating a map per request. */
+        return new WebResourceResponse("text/plain", "utf-8", 204, "No Content",
+                NO_CONTENT_HEADERS, new ByteArrayInputStream(new byte[0]));
     }
 
     private WebResourceResponse asset(String path) throws IOException {
