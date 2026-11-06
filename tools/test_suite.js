@@ -587,6 +587,17 @@ function check(name, ok, detail) {
     /if \(afd != null\)/.test(releaseFn) && /try \{ afd\.close\(\); \} catch \(Exception ignored\) \{\}/.test(releaseFn),
     leaky.slice(0, 2).join(' | '));
 
+  /* 34. The WebView keeps no offscreen raster of the whole page. setOffscreenPreRaster(true)
+         is the default and holds a second full-screen bitmap of the document so a stale frame
+         can stand in during a redraw; the grid does not need it, and the memory belongs to the
+         thumbnails. The call must be present, once, and off. */
+  const settingsBlock = (java.match(/WebSettings s = web\.getSettings\(\);([\s\S]*?)web\.addJavascriptInterface/) || ['', ''])[1];
+  const offscreenCalls = settingsBlock.match(/setOffscreenPreRaster\([^)]*\)/g) || [];
+  check('native WebView keeps no offscreen pre-raster (' + offscreenCalls.length + ' call(s))',
+    offscreenCalls.length === 1 && offscreenCalls[0] === 'setOffscreenPreRaster(false)' &&
+    /s\.setCacheMode\(WebSettings\.LOAD_NO_CACHE\);\s*\n\s*s\.setOffscreenPreRaster\(false\);/.test(settingsBlock) &&
+    (java.match(/setOffscreenPreRaster/g) || []).length === 1);
+
   await browser.close();
   server.close();
 
