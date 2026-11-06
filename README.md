@@ -13,9 +13,9 @@ A real, installable Android **photos** app — the liquid-glass UI from the orig
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.3.3, 114 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.3.5, 114 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.3.4 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.3.5 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -114,6 +114,17 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.3.5 — day 4 of the 20-day optimisation plan, seventeenth pass
+No UI change, no new features. Item 35 of the plan: the frame before the page paints now belongs to the theme the page is about to use.
+- The window background, the root `FrameLayout` and the `WebView` were all one hardcoded `#0B0B1A`. That is the dark
+  theme's colour, so in Light theme the surface the system paints before the page has drawn — a cold start, a reload,
+  or a surface handed back on resume — put a dark frame over a `#E9ECFF` page: a visible flash of the wrong theme.
+- All three layers now take the colour of the persisted theme (`BG_DARK` / `BG_LIGHT`, matching `body` and
+  `body.light` in `index.html`), set once before `setContentView` and again from `theme()` when the user switches, so
+  the pre-paint frame and the page always agree.
+- `tools/test_suite.js` fails if a literal colour returns, if any of the three layers stops following the theme, if the
+  helper moves behind `setContentView`, or if `theme()` stops re-applying it.
 
 ### 1.3.4 — day 4 of the 20-day optimisation plan, sixteenth pass
 No UI change, no new features. Item 34 of the plan: the WebView no longer keeps an offscreen raster of the whole page.
