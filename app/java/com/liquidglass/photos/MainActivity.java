@@ -1051,12 +1051,19 @@ public class MainActivity extends Activity {
     }
 
     private WebResourceResponse streamMedia(long id, WebResourceRequest req) {
+        /* The descriptor is opened before the first fallible step, and the WebView only closes a
+           body it actually receives: a stream that is never handed to a response is never closed
+           by anyone. Both handles are therefore declared out here so the catch below can release
+           them — a malformed Range header (Long.parseLong throws) or a failed seek used to return
+           404 with the descriptor still open, one file descriptor per request. */
+        AssetFileDescriptor afd = null;
+        FileInputStream fis = null;
         try {
             Uri uri = uriFor(id);
             String mime = mimeCache.get(id);
             if (mime == null) mime = "image/jpeg";
 
-            AssetFileDescriptor afd = getContentResolver().openAssetFileDescriptor(uri, "r");
+            afd = getContentResolver().openAssetFileDescriptor(uri, "r");
             if (afd == null) return notFound();
             long start = afd.getStartOffset();
             long len = afd.getLength();
@@ -1066,7 +1073,7 @@ public class MainActivity extends Activity {
             }
             ParcelFileDescriptor pfd = afd.getParcelFileDescriptor();
             final AssetFileDescriptor afdRef = afd;
-            FileInputStream fis = new FileInputStream(pfd.getFileDescriptor()) {
+            fis = new FileInputStream(pfd.getFileDescriptor()) {
                 @Override
                 public void close() throws IOException {
                     try {
@@ -1122,7 +1129,20 @@ public class MainActivity extends Activity {
             return new WebResourceResponse(mime, null, 200, "OK", h, fis);
         } catch (Exception e) {
             Log.w(TAG, "media " + id, e);
+            releaseMedia(fis, afd);
             return notFound();
+        }
+    }
+
+    /* Nothing was returned, so nothing else will ever close these. Closing the FileInputStream
+       also closes the AssetFileDescriptor it was built on; the second close is guarded because a
+       provider may already have released it (or the FileInputStream may never have been built). */
+    private static void releaseMedia(FileInputStream fis, AssetFileDescriptor afd) {
+        if (fis != null) {
+            try { fis.close(); } catch (Exception ignored) {}
+        }
+        if (afd != null) {
+            try { afd.close(); } catch (Exception ignored) {}
         }
     }
 
