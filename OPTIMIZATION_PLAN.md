@@ -67,7 +67,7 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
   `Cursor` is declared elsewhere, a `query()` appears outside the method, or a `close()` lands
   outside a `finally`. *(1.2.8)*
 - [x] 29. Avoid rebuilding the mime/size maps on every query — done: the row loop hands each row to `rememberMeta(id, mime, size)`, which writes an entry only when the cached value actually differs, so a refresh over an unchanged library performs no map writes at all (it used to do two boxed `put`s, and the occasional resize and rehash, per photo); both maps are capped at 12 000 ids (twice the 6000-row ceiling) and dropped rather than grown past it, and `dateCache` keeps its unconditional `put` so an edited photo still restamps its disk thumb. `tools/test_suite.js` fails if a `mimeCache`/`sizeCache` put returns to the row loop or the cap goes away. *(1.2.9)*
-- [ ] 30. Log query duration behind `Log.isLoggable(DEBUG)`.
+- [x] 30. Log query duration behind `Log.isLoggable(DEBUG)` — done: `queryMedia()` reads `Log.isLoggable(TAG, Log.DEBUG)` once, and only when it is true does it take a `System.nanoTime()` before `queryOne()` and print one `Log.d` line with the row count and the elapsed milliseconds; a normal run pays a single boolean read, no clock read, no concatenation and no log line, and the query itself is untouched. `tools/test_suite.js` fails if the clock read or the log line escapes the guard, or if a second unguarded `Log.d` appears anywhere in the bridge. *(1.3.0)*
 
 ## Day 4 — WebView plumbing
 
