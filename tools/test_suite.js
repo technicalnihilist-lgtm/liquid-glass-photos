@@ -598,6 +598,31 @@ function check(name, ok, detail) {
     /s\.setCacheMode\(WebSettings\.LOAD_NO_CACHE\);\s*\n\s*s\.setOffscreenPreRaster\(false\);/.test(settingsBlock) &&
     (java.match(/setOffscreenPreRaster/g) || []).length === 1);
 
+  /* 35. The frame shown before the page paints belongs to the theme the page is about to use.
+         The window background, the root view and the WebView were all one hardcoded dark colour,
+         so in Light theme a surface handed back on resume — or a reload — put a #0B0B1A frame
+         over a #E9ECFF page. All three now take the colour of the persisted theme, applied once
+         before setContentView and again whenever theme() changes it, and nothing sets a literal
+         colour outside that helper. */
+  const asset = fs.readFileSync(APP, 'utf8');
+  const bgFn = (java.match(/private void applyBackground\(boolean light\)[\s\S]*?\n    \}/) || [''])[0];
+  const onCreateBody = (java.match(/protected void onCreate\(Bundle savedInstanceState\)[\s\S]*?setContentView\(root\);/) || [''])[0];
+  const themeStart = java.indexOf('public void theme(boolean light)');
+  const themeFn = themeStart < 0 ? '' : java.slice(themeStart, java.indexOf('public void info(', themeStart));
+  const literalColours = (java.match(/setBackgroundColor\(0x/g) || []).length;
+  check('native pre-paint background follows the theme (' + literalColours + ' literal colour(s))',
+    /private static final int BG_DARK = 0xFF0B0B1A;/.test(java) &&
+    /private static final int BG_LIGHT = 0xFFE9ECFF;/.test(java) &&
+    /body\{[^}]*background:#0b0b1a/.test(asset) &&
+    /body\.light\{background:#e9ecff\}/.test(asset) &&
+    /int bg = light \? BG_LIGHT : BG_DARK;/.test(bgFn) &&
+    /root\.setBackgroundColor\(bg\)/.test(bgFn) &&
+    /web\.setBackgroundColor\(bg\)/.test(bgFn) &&
+    /w\.setBackgroundDrawable\(new ColorDrawable\(bg\)\)/.test(bgFn) &&
+    /applyBackground\(\);\s*\n\s*setContentView\(root\);/.test(onCreateBody) &&
+    /applyBackground\(l\);/.test(themeFn) &&
+    literalColours === 0);
+
   await browser.close();
   server.close();
 
