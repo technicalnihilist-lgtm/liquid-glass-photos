@@ -66,7 +66,7 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
   `close()` cannot fail a page that has already been read, and `tools/test_suite.js` fails if a
   `Cursor` is declared elsewhere, a `query()` appears outside the method, or a `close()` lands
   outside a `finally`. *(1.2.8)*
-- [ ] 29. Avoid rebuilding the mime/size maps on every query.
+- [x] 29. Avoid rebuilding the mime/size maps on every query — done: the row loop hands each row to `rememberMeta(id, mime, size)`, which writes an entry only when the cached value actually differs, so a refresh over an unchanged library performs no map writes at all (it used to do two boxed `put`s, and the occasional resize and rehash, per photo); both maps are capped at 12 000 ids (twice the 6000-row ceiling) and dropped rather than grown past it, and `dateCache` keeps its unconditional `put` so an edited photo still restamps its disk thumb. `tools/test_suite.js` fails if a `mimeCache`/`sizeCache` put returns to the row loop or the cap goes away. *(1.2.9)*
 - [ ] 30. Log query duration behind `Log.isLoggable(DEBUG)`.
 
 ## Day 4 — WebView plumbing
