@@ -13,9 +13,9 @@ A real, installable Android **photos** app — the liquid-glass UI from the orig
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.3.2, 114 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.3.3, 114 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.3.2 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.3.3 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -114,6 +114,32 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.3.3 — day 4 of the 20-day optimisation plan, fifteenth pass
+No UI change, no new features. Item 33 of the plan: no media request may leak a file descriptor.
+- Every `/media/` response wraps the gallery's `AssetFileDescriptor` in a `FileInputStream` and
+  hands it to the WebView as the body, so the WebView closes it when the bytes have been read.
+  A stream that is never handed to a response is never closed by anyone — and the error path did
+  exactly that: a malformed `Range` header (`Long.parseLong` throws on `bytes=-`, which Chromium
+  does send), a failed seek, or a `FileInputStream` that would not build reached the `catch` with
+  the descriptor already open and returned 404 without releasing it. Nothing else knew about that
+  descriptor, so it stayed open for the life of the process — one per request, until the process
+  ran out of descriptors.
+- Both handles are now declared before the `try` and released in the `catch` by `releaseMedia()`:
+  it closes the `FileInputStream` (which closes the `AssetFileDescriptor` it was built on) and
+  then the descriptor itself, each in its own guarded `try`, because a provider may already have
+  released it or the stream may never have been built. The success path is untouched: the three
+  responses that hand the stream out still own the close, and every status code, header value and
+  body is unchanged.
+- Audited the rest of the request path for the same shape: `asset()` opens one asset stream and
+  returns it in the response with no fallible step in between, and the thumbnail path decodes
+  through `close()`d streams already. `/media/` was the only site that could open a descriptor and
+  then return without handing it out.
+- `tools/test_suite.js` gains a check that pins it: both handles declared outside the `try`, the
+  release before the 404 in the `catch`, exactly one `openAssetFileDescriptor` site, and exactly
+  three `return`s after the descriptor opens — all three of them handing the stream to a response
+  (31 checks now).
+- 31 checks in `tools/test_suite.js`, all PASS; `tools/test_ui.js` all PASS.
 
 ### 1.3.2 — day 4 of the 20-day optimisation plan, fourteenth pass
 No UI change, no new features. Item 32 of the plan: a `shouldInterceptRequest` fast path for
