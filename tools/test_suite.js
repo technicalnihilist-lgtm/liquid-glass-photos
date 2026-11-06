@@ -499,6 +499,22 @@ function check(name, ok, detail) {
     /sizeCache\.size\(\) >= MEDIA_META_CACHE_MAX\) sizeCache\.clear\(\);/.test(metaFn) &&
     /dateCache\.put\(it\.id, it\.modified\)/.test(rowLoop));
 
+  /* 30. The MediaStore query is timed, but only behind Log.isLoggable(DEBUG). Knowing how long
+         the provider takes is what separates a slow first frame caused by the library scan from
+         one caused by the decode path; it used to be unmeasured. The timing is now taken around
+         queryOne(), and both the clock read and the log line sit behind one guard, so a normal
+         run pays a single boolean read and prints nothing. */
+  const queryMediaFn = (java.match(/private List<Item> queryMedia\(\)[\s\S]*?\n    \}/) || [''])[0];
+  check('native query times MediaStore only behind a Log.isLoggable(DEBUG) guard',
+    /boolean trace = Log\.isLoggable\(TAG, Log\.DEBUG\);/.test(queryMediaFn) &&
+    /long queryStart = trace \? System\.nanoTime\(\) : 0L;/.test(queryMediaFn) &&
+    /if \(trace\) \{\s*Log\.d\(TAG, "query "/.test(queryMediaFn) &&
+    (queryMediaFn.match(/Log\.d\(/g) || []).length === 1 &&
+    (java.match(/Log\.d\(/g) || []).length === 1 &&
+    queryMediaFn.indexOf('boolean trace = Log.isLoggable') <
+    queryMediaFn.indexOf('long queryStart = trace ?') &&
+    queryMediaFn.indexOf('long queryStart = trace ?') < queryMediaFn.indexOf('queryOne(out'));
+
   await browser.close();
   server.close();
 
