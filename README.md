@@ -13,9 +13,9 @@ A real, installable Android **photos** app — the liquid-glass UI from the orig
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.3.1, 114 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.3.2, 114 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.3.1 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.3.2 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -114,6 +114,23 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.3.2 — day 4 of the 20-day optimisation plan, fourteenth pass
+No UI change, no new features. Item 32 of the plan: a `shouldInterceptRequest` fast path for
+`favicon.ico`.
+- Chromium requests `/favicon.ico` on the first paint, and the app ships no icon. The request
+  missed the asset table, so it fell through to the `index.html` fallback: the whole app was
+  opened from the APK, streamed back and discarded as an icon — on every launch and every reload.
+- That path is now answered `204 No Content` before any asset lookup, with no body and no content
+  type, which is the answer a browser already gives for a site with no icon.
+- The header pair never varies, so the 204 reuses one unmodifiable `NO_CONTENT_HEADERS` map built
+  at class load (`Cache-Control: no-store`, `Content-Length: 0`) instead of allocating one per
+  request; `no-store` keeps the absence from being cached as if it were a file.
+- Nothing else changed: every other path, status code, header value and body is untouched, and no
+  screen, control or gesture moved.
+- `tools/test_suite.js` gains a check that the favicon branch sits before `asset()`, that the 204
+  keeps its shared map and that the map is not allocated per request.
+- 30 checks in `tools/test_suite.js`, all PASS; `tools/test_ui.js` all PASS.
 
 ### 1.3.1 — day 4 of the 20-day optimisation plan, thirteenth pass
 No UI change, no new features. Item 31 of the plan: reuse a single `WebResourceResponse`
