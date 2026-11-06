@@ -557,6 +557,36 @@ function check(name, ok, detail) {
     /NO_CONTENT_HEADERS/.test(noContentFn) &&
     !/new HashMap</.test(noContentFn));
 
+  /* 33. No media request may leak a file descriptor — 200 loads must leave 200 streams closed.
+         The WebView closes the body it is given, so a response that is handed out is fine; the
+         danger is the error path. A malformed Range header (Long.parseLong throws), a failed
+         seek, or a FileInputStream that will not build used to reach the catch with the
+         AssetFileDescriptor already open and return 404 without closing it — Chromium never saw
+         that stream, so nothing else would ever close it, one descriptor per request until
+         EMFILE. Both handles are now declared before the try and released in the catch, and the
+         only returns after the descriptor opens are the three that hand the stream to a
+         response. */
+  const mediaOpen = streamFn.indexOf('openAssetFileDescriptor');
+  const mediaCatch = streamFn.lastIndexOf('} catch (Exception e) {');
+  const mediaTry = streamFn.indexOf('try {');
+  /* the null-descriptor guard opens nothing, so counting starts after it */
+  const guardStmt = 'if (afd == null) return notFound();';
+  const mediaGuard = streamFn.indexOf(guardStmt);
+  const handedOut = (streamFn.slice(mediaGuard + guardStmt.length, mediaCatch).match(/return [^;]+;/g) || []);
+  const leaky = handedOut.filter((r) => !/new WebResourceResponse/.test(r));
+  const mediaCatchBody = streamFn.slice(mediaCatch);
+  const releaseFn = (java.match(/private static void releaseMedia\(FileInputStream fis, AssetFileDescriptor afd\)[\s\S]*?\n    \}/) || [''])[0];
+  check('native media stream closes the descriptor on every path that returns no response (' +
+    handedOut.length + ' hand-off(s), ' + (java.match(/openAssetFileDescriptor/g) || []).length + ' open site(s))',
+    /AssetFileDescriptor afd = null;\s*\n\s*FileInputStream fis = null;\s*\n\s*try \{/.test(streamFn) &&
+    mediaTry < mediaOpen && mediaOpen > 0 && mediaGuard > mediaOpen && mediaCatch > mediaGuard &&
+    handedOut.length === 3 && leaky.length === 0 &&
+    /releaseMedia\(fis, afd\);/.test(mediaCatchBody) &&
+    mediaCatchBody.indexOf('releaseMedia(fis, afd);') < mediaCatchBody.indexOf('return notFound();') &&
+    /if \(fis != null\)/.test(releaseFn) && /try \{ fis\.close\(\); \} catch \(Exception ignored\) \{\}/.test(releaseFn) &&
+    /if \(afd != null\)/.test(releaseFn) && /try \{ afd\.close\(\); \} catch \(Exception ignored\) \{\}/.test(releaseFn),
+    leaky.slice(0, 2).join(' | '));
+
   await browser.close();
   server.close();
 
