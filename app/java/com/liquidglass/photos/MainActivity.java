@@ -80,6 +80,9 @@ public class MainActivity extends Activity {
 
     private final Map<Long, String> mimeCache = Collections.synchronizedMap(new HashMap<Long, String>());
     private final Map<Long, Long> sizeCache = Collections.synchronizedMap(new HashMap<Long, Long>());
+    /* Ceiling for the two metadata maps above, at twice the 6000-row media ceiling: they are keyed
+       by media id, so a library that only ever grows would otherwise grow them forever. */
+    private static final int MEDIA_META_CACHE_MAX = 2 * 6000;
 
     // in-memory thumbnail cache, bounded by bytes rather than entry count
     private static final long THUMB_CACHE_BYTES = 12L * 1024 * 1024;
@@ -601,8 +604,7 @@ public class MainActivity extends Activity {
                         it.bucket = pooled;
                     }
                     out.add(it);
-                    mimeCache.put(it.id, it.mime);
-                    sizeCache.put(it.id, it.size);
+                    rememberMeta(it.id, it.mime, it.size);
                     if (it.w > 0 && it.h > 0) dimCache.put(it.id, new int[]{it.w, it.h});
                     if (it.modified > 0) dateCache.put(it.id, it.modified);
                 }
@@ -624,6 +626,28 @@ public class MainActivity extends Activity {
             }
             /* A short page is the end of the library; an unpaged query has nothing left to ask for. */
             if (!paged || out.size() - before < MEDIA_PAGE_SIZE) break;
+        }
+    }
+
+    /* The mime and size maps are what the thumb response, the info sheet and the share type read
+       after a row has scrolled out of the query, so they have to carry what the last query saw.
+       They used to be rewritten row by row on every query — two boxed puts, and a possible resize
+       and rehash, per photo even when a rescan found nothing new. A row is now written only when
+       its value actually differs from the cached one, so a refresh over an unchanged library does
+       no map writes at all, and each map is capped so a growing library cannot grow it forever
+       (a full map is dropped rather than evicted one entry at a time, the same way heifUnsupported
+       is handled: the next query refills it from the rows it reads). */
+    private void rememberMeta(long id, String mime, long size) {
+        Long key = Long.valueOf(id);
+        String oldMime = mimeCache.get(key);
+        if (oldMime == null || !oldMime.equals(mime)) {
+            if (mimeCache.size() >= MEDIA_META_CACHE_MAX) mimeCache.clear();
+            mimeCache.put(key, mime);
+        }
+        Long oldSize = sizeCache.get(key);
+        if (oldSize == null || oldSize.longValue() != size) {
+            if (sizeCache.size() >= MEDIA_META_CACHE_MAX) sizeCache.clear();
+            sizeCache.put(key, size);
         }
     }
 
