@@ -541,6 +541,22 @@ function check(name, ok, detail) {
     /Map<String, String> lh = new HashMap<String, String>\(h\);/.test(streamFn) &&
     /Map<String, String> rh = new HashMap<String, String>\(h\);/.test(streamFn));
 
+  /* 32. A favicon request never reaches the asset fallback. Chromium asks for /favicon.ico on
+         the first paint, the app ships no icon, and the miss used to fall through to the
+         index.html fallback — the whole app opened, streamed back and discarded as an icon, on
+         every launch and every reload. The request is now answered 204 No Content, from a shared
+         unmodifiable header map, before any asset lookup. */
+  const interceptFn = (java.match(/public WebResourceResponse shouldInterceptRequest\(WebView view, WebResourceRequest req\)[\s\S]*?\n        \}/) || [''])[0];
+  const noContentFn = (java.match(/private WebResourceResponse noContent\(\)[\s\S]*?\n    \}/) || [''])[0];
+  check('native answers /favicon.ico with 204 before any asset lookup',
+    /private static final Map<String, String> NO_CONTENT_HEADERS =\s*fixedHeaders\("Cache-Control", "no-store", "Content-Length", "0"\);/.test(java) &&
+    /if \("\/favicon\.ico"\.equals\(path\)\) return noContent\(\);/.test(interceptFn) &&
+    interceptFn.indexOf('"/favicon.ico"') < interceptFn.indexOf('path.startsWith("/thumb/")') &&
+    interceptFn.indexOf('"/favicon.ico"') < interceptFn.indexOf('return asset(path)') &&
+    /204, "No Content"/.test(noContentFn) &&
+    /NO_CONTENT_HEADERS/.test(noContentFn) &&
+    !/new HashMap</.test(noContentFn));
+
   await browser.close();
   server.close();
 
