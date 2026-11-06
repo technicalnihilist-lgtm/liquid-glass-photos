@@ -20,6 +20,7 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.ImageDecoder;
+import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -73,6 +74,13 @@ public class MainActivity extends Activity {
     private static final int REQ_PERM = 1001;
     private static final int REQ_DEL = 1002;
     private static final int REQ_PICK = 1003;
+    /* The colour the surface is painted before the page has drawn anything, once per theme. The
+       window background, the root FrameLayout and the WebView all take it, so a frame shown
+       before the HTML paints — a cold start, a reload, or a surface handed back on resume — is
+       the page's own background instead of the other theme's. Must match body / body.light in
+       app/assets/index.html. */
+    private static final int BG_DARK = 0xFF0B0B1A;
+    private static final int BG_LIGHT = 0xFFE9ECFF;
 
     private WebView web;
     private FrameLayout root;
@@ -293,6 +301,21 @@ public class MainActivity extends Activity {
         }
     }
 
+    /* Paint every layer the user can see before the page draws in the colour the page itself
+       will use. Called before setContentView on launch and again whenever the theme changes, so
+       the pre-paint frame never belongs to the other theme. */
+    private void applyBackground() {
+        applyBackground(prefs.getBoolean("light", false));
+    }
+
+    private void applyBackground(boolean light) {
+        int bg = light ? BG_LIGHT : BG_DARK;
+        if (root != null) root.setBackgroundColor(bg);
+        if (web != null) web.setBackgroundColor(bg);
+        Window w = getWindow();
+        if (w != null) w.setBackgroundDrawable(new ColorDrawable(bg));
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -316,11 +339,10 @@ public class MainActivity extends Activity {
         }
 
         root = new FrameLayout(this);
-        root.setBackgroundColor(0xFF0B0B1A);
         web = new WebView(this);
-        web.setBackgroundColor(0xFF0B0B1A);
         root.addView(web, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        applyBackground();
         setContentView(root);
 
         WebSettings s = web.getSettings();
@@ -1352,6 +1374,7 @@ public class MainActivity extends Activity {
                         if (l) f |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
                         getWindow().getDecorView().setSystemUiVisibility(f);
                     }
+                    applyBackground(l);
                 }
             });
         }
