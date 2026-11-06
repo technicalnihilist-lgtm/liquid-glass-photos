@@ -84,6 +84,22 @@ public class MainActivity extends Activity {
        by media id, so a library that only ever grows would otherwise grow them forever. */
     private static final int MEDIA_META_CACHE_MAX = 2 * 6000;
 
+    /* Fixed response headers, built once instead of per request. A WebView reads the header map
+       off the UI thread while the response is being consumed, so a map may only be shared when
+       nothing can write to it afterwards: every map below is unmodifiable and holds only values
+       that never vary for its response shape. The responses whose headers depend on the request
+       (a thumb's Content-Length, a media range's Content-Range) still build their own map. */
+    private static final Map<String, String> NOT_FOUND_HEADERS =
+            fixedHeaders("Cache-Control", "no-store", "Content-Length", "0");
+    /* asset() can only answer with one of these mimes, so each gets its map at class load and
+       every asset response shares it — index.html on launch, and the 404 fallback that serves it
+       for an unknown path, stop allocating a HashMap per request. */
+    private static final Map<String, Map<String, String>> ASSET_HEADERS = assetHeaders();
+    /* Media responses share one base map per mime for the two headers that never vary; the length
+       and range variants copy it before adding their own value. */
+    private static final Map<String, Map<String, String>> MEDIA_HEADERS =
+            Collections.synchronizedMap(new HashMap<String, Map<String, String>>());
+
     // in-memory thumbnail cache, bounded by bytes rather than entry count
     private static final long THUMB_CACHE_BYTES = 12L * 1024 * 1024;
     // longest side of a thumbnail, and the size the BitmapFactory sample loop aims above
@@ -919,6 +935,8 @@ public class MainActivity extends Activity {
                        Chromium has to wait for the stream to end before it can paint the tile,
                        which shows up as an empty tile that fills in late. */
                     if (bytes == null) return notFound();
+                    /* The length is the one header that differs between thumbs, so this map
+                       cannot be shared: it is the fresh map the fixed shapes above avoid. */
                     Map<String, String> h = new HashMap<>();
                     h.put("Content-Type", "image/jpeg");
                     /* A thumb URL is stable for a media id, and the bytes behind it only change when
@@ -953,16 +971,40 @@ public class MainActivity extends Activity {
         }
     }
 
+    private static Map<String, String> fixedHeaders(String... kv) {
+        Map<String, String> h = new HashMap<String, String>();
+        for (int i = 0; i + 1 < kv.length; i += 2) h.put(kv[i], kv[i + 1]);
+        return Collections.unmodifiableMap(h);
+    }
+
+    private static Map<String, Map<String, String>> assetHeaders() {
+        String[] mimes = {"text/plain", "text/html", "application/javascript", "text/css",
+                "image/svg+xml", "image/png", "application/json"};
+        Map<String, Map<String, String>> out = new HashMap<String, Map<String, String>>();
+        for (int i = 0; i < mimes.length; i++) {
+            out.put(mimes[i], fixedHeaders("Content-Type", mimes[i] + "; charset=utf-8",
+                    "Cache-Control", "no-cache"));
+        }
+        return Collections.unmodifiableMap(out);
+    }
+
+    private static Map<String, String> mediaHeaders(String mime) {
+        Map<String, String> h = MEDIA_HEADERS.get(mime);
+        if (h == null) {
+            h = fixedHeaders("Accept-Ranges", "bytes", "Content-Type", mime,
+                    "Cache-Control", "public, max-age=3600");
+            MEDIA_HEADERS.put(mime, h);
+        }
+        return h;
+    }
+
     private WebResourceResponse notFound() {
         /* The body is empty, so the length is 0 rather than unknown: a thumb request that fails
-           to decode must still be a length-delimited response, like the successful one. */
-        Map<String, String> h = new HashMap<>();
-        /* A failed decode says nothing durable about the photo, so it must not be remembered the
-           way an immutable successful thumb is. */
-        h.put("Cache-Control", "no-store");
-        h.put("Content-Length", "0");
+           to decode must still be a length-delimited response, like the successful one. The
+           header pair is identical for every failure, so all of them share NOT_FOUND_HEADERS;
+           a failed decode still says nothing durable about the photo, so it is still no-store. */
         return new WebResourceResponse("text/plain", "utf-8", 404, "Not Found",
-                h, new ByteArrayInputStream(new byte[0]));
+                NOT_FOUND_HEADERS, new ByteArrayInputStream(new byte[0]));
     }
 
     private WebResourceResponse asset(String path) throws IOException {
@@ -985,9 +1027,8 @@ public class MainActivity extends Activity {
         else if (name.endsWith(".svg")) mime = "image/svg+xml";
         else if (name.endsWith(".png")) mime = "image/png";
         else if (name.endsWith(".json")) mime = "application/json";
-        Map<String, String> h = new HashMap<>();
-        h.put("Content-Type", mime + "; charset=utf-8");
-        h.put("Cache-Control", "no-cache");
+        Map<String, String> h = ASSET_HEADERS.get(mime);
+        if (h == null) h = fixedHeaders("Content-Type", mime + "; charset=utf-8", "Cache-Control", "no-cache");
         return new WebResourceResponse(mime, "utf-8", 200, "OK", h, in);
     }
 
@@ -1024,10 +1065,9 @@ public class MainActivity extends Activity {
                 range = req.getRequestHeaders().get("Range");
             }
 
-            Map<String, String> h = new HashMap<>();
-            h.put("Accept-Ranges", "bytes");
-            h.put("Content-Type", mime);
-            h.put("Cache-Control", "public, max-age=3600");
+            /* The three headers that never vary come from the shared per-mime map; the two
+               variants below need a value of their own, so they copy it rather than write to it. */
+            Map<String, String> h = mediaHeaders(mime);
 
             if (range != null && range.startsWith("bytes=") && len > 0) {
                 String spec = range.substring(6).split(",")[0].trim();
@@ -1046,16 +1086,18 @@ public class MainActivity extends Activity {
                 if (from > to) from = 0;
                 long count = to - from + 1;
                 ch.position(start + from);
-                h.put("Content-Range", "bytes " + from + "-" + to + "/" + len);
-                h.put("Content-Length", String.valueOf(count));
-                return new WebResourceResponse(mime, null, 206, "Partial Content", h,
+                Map<String, String> rh = new HashMap<String, String>(h);
+                rh.put("Content-Range", "bytes " + from + "-" + to + "/" + len);
+                rh.put("Content-Length", String.valueOf(count));
+                return new WebResourceResponse(mime, null, 206, "Partial Content", rh,
                         new LimitedStream(fis, count));
             }
 
             if (len > 0) {
                 ch.position(start);
-                h.put("Content-Length", String.valueOf(len));
-                return new WebResourceResponse(mime, null, 200, "OK", h,
+                Map<String, String> lh = new HashMap<String, String>(h);
+                lh.put("Content-Length", String.valueOf(len));
+                return new WebResourceResponse(mime, null, 200, "OK", lh,
                         new LimitedStream(fis, len));
             }
             ch.position(start);
