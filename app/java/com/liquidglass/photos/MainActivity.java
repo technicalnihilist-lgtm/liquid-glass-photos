@@ -33,6 +33,7 @@ import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowInsets;
 import android.webkit.JavascriptInterface;
+import android.webkit.RenderProcessGoneDetail;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
@@ -316,6 +317,67 @@ public class MainActivity extends Activity {
         if (w != null) w.setBackgroundDrawable(new ColorDrawable(bg));
     }
 
+    /* Build a WebView with every setting, client and bridge the app runs with. Used once by
+       onCreate and again by rebuildWebView() after the renderer has been killed, so the launch
+       path and the recovery path cannot drift apart. */
+    private WebView createWeb() {
+        WebView w = new WebView(this);
+
+        WebSettings s = w.getSettings();
+        s.setJavaScriptEnabled(true);
+        s.setDomStorageEnabled(true);
+        s.setDatabaseEnabled(true);
+        s.setMediaPlaybackRequiresUserGesture(false);
+        s.setAllowFileAccess(false);
+        s.setAllowContentAccess(true);
+        s.setLoadWithOverviewMode(true);
+        s.setUseWideViewPort(true);
+        s.setSupportZoom(false);
+        s.setBuiltInZoomControls(false);
+        s.setTextZoom(100);
+        s.setCacheMode(WebSettings.LOAD_NO_CACHE);
+        s.setOffscreenPreRaster(false);
+        if (Build.VERSION.SDK_INT >= 26) s.setSafeBrowsingEnabled(false);
+
+        w.addJavascriptInterface(new Bridge(), "AndroidNative");
+        /* onRenderProcessGone only exists from API 26, and its parameter type does not exist on
+           24/25: the recovery client is a separate class that is loaded only on 26+, so a device
+           without the class never resolves it. */
+        w.setWebViewClient(Build.VERSION.SDK_INT >= 26 ? new RecoverClient() : new LocalClient());
+        w.setWebChromeClient(new WebChromeClient());
+        w.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        return w;
+    }
+
+    /* The renderer is a separate process and the system kills it whenever it needs to: a
+       low-memory device reclaims it, or a page takes it down. The default answer to
+       onRenderProcessGone is to let the app die with it, which is the crash this replaces. A
+       WebView whose renderer is gone can never be used again, so it is removed from the tree,
+       destroyed, and a fresh one — same settings, same bridge, same start URL, same layout
+       params and the same IME padding — is put back in its place. Nothing on screen moves: the
+       page reloads from the same asset, the persisted state is unchanged, the MediaStore query
+       and the thumbnail caches are untouched, and the page restores its insets from meta() on
+       the way up, so the recovered frame is the one the user was looking at. */
+    private void rebuildWebView() {
+        if (root == null) return;
+        WebView old = web;
+        web = null;
+        if (old != null) {
+            root.removeView(old);
+            try {
+                old.destroy();
+            } catch (Throwable ignored) {
+            }
+        }
+        WebView fresh = createWeb();
+        web = fresh;
+        fresh.setPadding(0, 0, 0, imeBottom);
+        root.addView(fresh, 0, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        applyBackground();
+        fresh.loadUrl(HOST + "index.html");
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -339,32 +401,11 @@ public class MainActivity extends Activity {
         }
 
         root = new FrameLayout(this);
-        web = new WebView(this);
+        web = createWeb();
         root.addView(web, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         applyBackground();
         setContentView(root);
-
-        WebSettings s = web.getSettings();
-        s.setJavaScriptEnabled(true);
-        s.setDomStorageEnabled(true);
-        s.setDatabaseEnabled(true);
-        s.setMediaPlaybackRequiresUserGesture(false);
-        s.setAllowFileAccess(false);
-        s.setAllowContentAccess(true);
-        s.setLoadWithOverviewMode(true);
-        s.setUseWideViewPort(true);
-        s.setSupportZoom(false);
-        s.setBuiltInZoomControls(false);
-        s.setTextZoom(100);
-        s.setCacheMode(WebSettings.LOAD_NO_CACHE);
-        s.setOffscreenPreRaster(false);
-        if (Build.VERSION.SDK_INT >= 26) s.setSafeBrowsingEnabled(false);
-
-        web.addJavascriptInterface(new Bridge(), "AndroidNative");
-        web.setWebViewClient(new LocalClient());
-        web.setWebChromeClient(new WebChromeClient());
-        web.setOverScrollMode(View.OVER_SCROLL_NEVER);
 
         root.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() {
             @Override
@@ -1154,6 +1195,22 @@ public class MainActivity extends Activity {
             Log.w(TAG, "media " + id, e);
             releaseMedia(fis, afd);
             return notFound();
+        }
+    }
+
+    /* The launch client plus one callback. onRenderProcessGone arrived in API 26 and its parameter
+       type does not exist below it, so the override lives in a class of its own: createWeb()
+       instantiates this one only on 26+, and a device that has neither the method nor the type
+       never resolves it and keeps the plain client. */
+    private class RecoverClient extends LocalClient {
+        @Override
+        public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
+            /* Returning false — the default — lets the framework kill the app along with the dead
+               renderer. true says the activity has handled it: the view that died is replaced by
+               rebuildWebView(). A callback arriving for a WebView this activity already replaced
+               is acknowledged and ignored, so it cannot tear down the live one. */
+            if (view == web) rebuildWebView();
+            return true;
         }
     }
 
