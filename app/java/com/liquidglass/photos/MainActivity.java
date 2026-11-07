@@ -34,6 +34,7 @@ import android.view.Window;
 import android.view.WindowInsets;
 import android.webkit.JavascriptInterface;
 import android.webkit.RenderProcessGoneDetail;
+import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
@@ -87,6 +88,12 @@ public class MainActivity extends Activity {
     private WebView web;
     private FrameLayout root;
     private SharedPreferences prefs;
+    /* Set in onDestroy before the WebView is destroyed. Every call into the page is asynchronous —
+       a Runnable on the UI queue, an insets callback, a back-press — so one can run after the
+       activity has torn its view down, and evaluateJavascript() on a destroyed WebView throws
+       inside the framework. The flag makes that window visible to evalOn(); the field itself is
+       cleared once the destroy returns, so the null check answers on its own from then on. */
+    private boolean webGone;
 
     private final Map<Long, String> mimeCache = Collections.synchronizedMap(new HashMap<Long, String>());
     private final Map<Long, Long> sizeCache = Collections.synchronizedMap(new HashMap<Long, Long>());
@@ -432,7 +439,7 @@ public class MainActivity extends Activity {
                     final String js = "window.__native&&window.__native.ime&&window.__native.ime(" + imeBottom + ")";
                     runOnUiThread(new Runnable() {
                         public void run() {
-                            if (web != null) web.evaluateJavascript(js, null);
+                            evalOn(js, null);
                         }
                     });
                 }
@@ -443,12 +450,31 @@ public class MainActivity extends Activity {
         web.loadUrl(HOST + "index.html");
     }
 
+    /* The one place the app calls into the page. A WebView is unusable the moment it has been
+       destroyed — onDestroy() tears the activity's view down, and rebuildWebView() destroys the
+       view whose renderer died — and every call site here is asynchronous, so the view can be gone
+       by the time the call runs. The field and the liveness flag are therefore re-read here, at
+       the moment of the call, instead of being checked by the caller: a stale check passes, this
+       one cannot. Returns false when nothing was dispatched, so a caller that needs an answer
+       (back-press) can act on the page being absent. */
+    private boolean evalOn(final String js, final ValueCallback<String> cb) {
+        WebView w = web;
+        if (w == null || webGone) return false;
+        try {
+            w.evaluateJavascript(js, cb);
+        } catch (Throwable ignored) {
+            /* the view went away between the check and the call */
+            return false;
+        }
+        return true;
+    }
+
     private void pushInsets() {
         final String js = "window.__native&&window.__native.insets&&window.__native.insets("
                 + insetTop + "," + insetBottom + ")";
         runOnUiThread(new Runnable() {
             public void run() {
-                if (web != null) web.evaluateJavascript(js, null);
+                evalOn(js, null);
             }
         });
     }
@@ -456,7 +482,7 @@ public class MainActivity extends Activity {
     private void eval(final String js) {
         runOnUiThread(new Runnable() {
             public void run() {
-                if (web != null) web.evaluateJavascript(js, null);
+                evalOn(js, null);
             }
         });
     }
@@ -464,14 +490,16 @@ public class MainActivity extends Activity {
     @Override
     public void onBackPressed() {
         // let the web app handle back (close viewer / leave album) first
-        web.evaluateJavascript("(function(){return window.__native&&window.__native.back?window.__native.back():false})()",
-                new android.webkit.ValueCallback<String>() {
+        boolean sent = evalOn("(function(){return window.__native&&window.__native.back?window.__native.back():false})()",
+                new ValueCallback<String>() {
                     public void onReceiveValue(String value) {
                         if (value == null || !value.contains("true")) {
                             finish();
                         }
                     }
                 });
+        /* no page to ask: back means leave the app */
+        if (!sent) finish();
     }
 
     /* ------------------------------------------------------------------ */
@@ -1580,9 +1608,19 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        if (web != null) {
-            web.loadUrl("about:blank");
-            web.destroy();
+        /* The flag goes up before the destroy, so a Runnable already sitting on the UI queue — an
+           insets push, an IME push, a resume eval — finds the view dead and returns instead of
+           calling into a WebView that no longer exists. The field is cleared afterwards, so from
+           then on the null check answers on its own. */
+        webGone = true;
+        WebView w = web;
+        web = null;
+        if (w != null) {
+            try {
+                w.loadUrl("about:blank");
+                w.destroy();
+            } catch (Throwable ignored) {
+            }
         }
         super.onDestroy();
     }
