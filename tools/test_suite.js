@@ -681,6 +681,36 @@ function check(name, ok, detail) {
     /mainFrameRetried = false;/.test(finishedFn) &&
     !/rebuildWebView\(\)/.test(errorFn));
 
+  /* 38. A destroyed WebView is never called into. Every call into the page is asynchronous — an
+         insets push, an IME push, a resume eval, a back-press — so a Runnable posted before
+         onDestroy() tore the view down could still be sitting on the UI queue when it ran, and
+         evaluateJavascript() on a destroyed WebView throws inside the framework, on the UI thread,
+         as an uncaught exception. All four call sites now go through one evalOn() that re-reads
+         the field and the liveness flag at the moment of the call, and swallows the throw for the
+         window between the two; onDestroy() raises the flag before destroying and clears the field
+         after, and a back-press with no live page leaves the app instead of calling into nothing. */
+  const evalFn = (java.match(/private boolean evalOn\([\s\S]*?\n    \}/) || [''])[0];
+  const destroyFn = (java.match(/protected void onDestroy\(\)[\s\S]*?\n    \}/) || [''])[0];
+  const backFn = (java.match(/public void onBackPressed\(\)[\s\S]*?\n    \}/) || [''])[0];
+  const evalSites = (java.match(/\.evaluateJavascript\(/g) || []).length;
+  const evalCallSites = (java.match(/evalOn\(js, null\);/g) || []).length;
+  check('native never calls into a destroyed WebView (' + evalSites + ' evaluateJavascript site(s), ' +
+    evalCallSites + ' guarded eval(s))',
+    evalSites === 1 &&
+    /import android\.webkit\.ValueCallback;/.test(java) &&
+    /private boolean webGone;/.test(java) &&
+    /WebView w = web;/.test(evalFn) &&
+    /if \(w == null \|\| webGone\) return false;/.test(evalFn) &&
+    /w\.evaluateJavascript\(js, cb\);/.test(evalFn) &&
+    /catch \(Throwable ignored\)/.test(evalFn) &&
+    /return true;/.test(evalFn) &&
+    evalCallSites === 3 &&
+    /webGone = true;/.test(destroyFn) &&
+    destroyFn.indexOf('webGone = true;') < destroyFn.indexOf('destroy();') &&
+    /web = null;/.test(destroyFn) &&
+    /boolean sent = evalOn\(/.test(backFn) &&
+    /if \(!sent\) finish\(\);/.test(backFn));
+
   await browser.close();
   server.close();
 
