@@ -591,7 +591,7 @@ function check(name, ok, detail) {
          is the default and holds a second full-screen bitmap of the document so a stale frame
          can stand in during a redraw; the grid does not need it, and the memory belongs to the
          thumbnails. The call must be present, once, and off. */
-  const settingsBlock = (java.match(/WebSettings s = web\.getSettings\(\);([\s\S]*?)web\.addJavascriptInterface/) || ['', ''])[1];
+  const settingsBlock = (java.match(/WebSettings s = w\.getSettings\(\);([\s\S]*?)w\.addJavascriptInterface/) || ['', ''])[1];
   const offscreenCalls = settingsBlock.match(/setOffscreenPreRaster\([^)]*\)/g) || [];
   check('native WebView keeps no offscreen pre-raster (' + offscreenCalls.length + ' call(s))',
     offscreenCalls.length === 1 && offscreenCalls[0] === 'setOffscreenPreRaster(false)' &&
@@ -622,6 +622,39 @@ function check(name, ok, detail) {
     /applyBackground\(\);\s*\n\s*setContentView\(root\);/.test(onCreateBody) &&
     /applyBackground\(l\);/.test(themeFn) &&
     literalColours === 0);
+
+  /* 36. A dead renderer no longer takes the app with it. The renderer runs in its own process
+         and the system kills it under memory pressure (or a page crashes it); the default
+         onRenderProcessGone lets the framework kill the app too. It is now handled: the activity
+         answers true, throws the dead WebView away and puts a freshly built one in the same
+         FrameLayout, at the same layout params and with the same IME padding, loading the same
+         start URL. The settings, the bridge and the client live in one createWeb() that both the
+         launch path and the recovery path call, so the two cannot drift. The override sits in
+         RecoverClient, instantiated only on API 26+, because the callback and its parameter type
+         do not exist below 26. */
+  const createWebFn = (java.match(/private WebView createWeb\(\)[\s\S]*?\n    \}/) || [''])[0];
+  const rebuildFn = (java.match(/private void rebuildWebView\(\)[\s\S]*?\n    \}/) || [''])[0];
+  const recoverFn = (java.match(/private class RecoverClient extends LocalClient[\s\S]*?\n    \}/) || [''])[0];
+  const launchBlock = (java.match(/protected void onCreate\(Bundle savedInstanceState\)[\s\S]*?web\.loadUrl\(HOST \+ "index\.html"\);/) || [''])[0];
+  const renderGoneSites = (java.match(/public boolean onRenderProcessGone\(/g) || []).length;
+  check('native rebuilds the WebView when the renderer dies (' + renderGoneSites + ' override(s))',
+    renderGoneSites === 1 &&
+    /public boolean onRenderProcessGone\(WebView view, RenderProcessGoneDetail detail\)/.test(recoverFn) &&
+    /if \(view == web\) rebuildWebView\(\);\s*\n\s*return true;/.test(recoverFn) &&
+    /private class RecoverClient extends LocalClient/.test(java) &&
+    /import android\.webkit\.RenderProcessGoneDetail;/.test(java) &&
+    /Build\.VERSION\.SDK_INT >= 26 \? new RecoverClient\(\) : new LocalClient\(\)/.test(createWebFn) &&
+    /web = createWeb\(\);/.test(launchBlock) &&
+    /web\.loadUrl\(HOST \+ "index\.html"\);/.test(launchBlock) &&
+    /root\.removeView\(old\);/.test(rebuildFn) &&
+    /old\.destroy\(\);/.test(rebuildFn) &&
+    /web = null;/.test(rebuildFn) &&
+    /WebView fresh = createWeb\(\);/.test(rebuildFn) &&
+    /web = fresh;/.test(rebuildFn) &&
+    /fresh\.setPadding\(0, 0, 0, imeBottom\);/.test(rebuildFn) &&
+    /root\.addView\(fresh, 0, new FrameLayout\.LayoutParams\(/.test(rebuildFn) &&
+    /applyBackground\(\);/.test(rebuildFn) &&
+    /fresh\.loadUrl\(HOST \+ "index\.html"\);/.test(rebuildFn));
 
   await browser.close();
   server.close();
