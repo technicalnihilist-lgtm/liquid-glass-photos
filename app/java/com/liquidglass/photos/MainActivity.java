@@ -11,6 +11,7 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.res.AssetFileDescriptor;
 import android.content.res.AssetManager;
+import android.content.res.Configuration;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
@@ -342,6 +343,10 @@ public class MainActivity extends Activity {
         s.setUseWideViewPort(true);
         s.setSupportZoom(false);
         s.setBuiltInZoomControls(false);
+        /* Pin the text scale at 100%: Chromium's font boosting (text autosizing) derives its
+           multiplier from the WebView's text zoom, so 100 leaves every px size in index.html
+           exactly as written. It is set here, in the one settings block both the launch path and
+           the recovery path go through, so a rebuilt WebView is pinned before its first load. */
         s.setTextZoom(100);
         s.setCacheMode(WebSettings.LOAD_NO_CACHE);
         s.setOffscreenPreRaster(false);
@@ -1584,6 +1589,24 @@ public class MainActivity extends Activity {
     }
 
     private long lastResumeRefresh = 0L;
+
+    /* The manifest absorbs fontScale and density changes, so a user who changes the system text
+       size while the app is running gets no new activity and no new WebView — the same view is
+       simply re-laid out, and it would re-derive its text scale from the new configuration. The
+       pin applied in createWeb() is therefore re-applied here, on the live view, before that
+       re-layout: still 100%, so the text the page drew at px sizes is the text it keeps drawing,
+       and nothing on screen moves. */
+    @Override
+    public void onConfigurationChanged(Configuration cfg) {
+        super.onConfigurationChanged(cfg);
+        WebView w = web;
+        if (w == null || webGone) return;
+        try {
+            w.getSettings().setTextZoom(100);
+        } catch (Throwable ignored) {
+            /* the view went away before the re-pin */
+        }
+    }
 
     @Override
     protected void onResume() {
