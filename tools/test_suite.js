@@ -656,6 +656,31 @@ function check(name, ok, detail) {
     /applyBackground\(\);/.test(rebuildFn) &&
     /fresh\.loadUrl\(HOST \+ "index\.html"\);/.test(rebuildFn));
 
+  /* 37. A main-frame load that fails no longer leaves Chromium's own error page on screen. The
+         page owns every control in this app, so an error page is a dead screen with no way back:
+         a failed main-frame load of the start URL is now reloaded once, from the same intercept
+         path, with the same UI. The retry is bounded — one per load, re-armed only by a page that
+         actually finished — and it ignores sub-resource failures, a stale WebView this activity
+         already replaced, and the cancelled loads Chromium reports as ERROR_UNKNOWN. */
+  const localClientFn = (java.match(/private class LocalClient extends WebViewClient[\s\S]*?\n    \}/) || [''])[0];
+  const errorFn = (localClientFn.match(/public void onReceivedError\(WebView view, WebResourceRequest req, WebResourceError err\)[\s\S]*?\n        \}/) || [''])[0];
+  const finishedFn = (localClientFn.match(/public void onPageFinished\(WebView view, String url\)[\s\S]*?\n        \}/) || [''])[0];
+  const errorSites = (java.match(/public void onReceivedError\(WebView view, WebResourceRequest req, WebResourceError err\)/g) || []).length;
+  check('native retries a failed main-frame load once (' + errorSites + ' override(s))',
+    errorSites === 1 &&
+    /import android\.webkit\.WebResourceError;/.test(java) &&
+    /private boolean mainFrameRetried;/.test(localClientFn) &&
+    /!req\.isForMainFrame\(\)\) return;/.test(errorFn) &&
+    /!"app\.local"\.equals\(u\.getHost\(\)\)\) return;/.test(errorFn) &&
+    /if \(view != web\) return;/.test(errorFn) &&
+    /if \(mainFrameRetried\) return;/.test(errorFn) &&
+    /err\.getErrorCode\(\) == WebViewClient\.ERROR_UNKNOWN\) return;/.test(errorFn) &&
+    errorFn.indexOf('mainFrameRetried = true;') > -1 &&
+    errorFn.indexOf('mainFrameRetried = true;') < errorFn.indexOf('view.loadUrl(HOST + "index.html");') &&
+    errorFn.indexOf('view.loadUrl(HOST + "index.html");') > errorFn.indexOf('!req.isForMainFrame()') &&
+    /mainFrameRetried = false;/.test(finishedFn) &&
+    !/rebuildWebView\(\)/.test(errorFn));
+
   await browser.close();
   server.close();
 
