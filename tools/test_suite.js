@@ -711,6 +711,28 @@ function check(name, ok, detail) {
     /boolean sent = evalOn\(/.test(backFn) &&
     /if \(!sent\) finish\(\);/.test(backFn));
 
+  /* 39. Text autosizing is off, and it stays off across a reload. Chromium's font boosting
+         inflates text the page sizes in px whenever it decides the content is too wide for the
+         viewport, and the manifest absorbs fontScale/density changes, so nothing recreates the
+         activity that would re-apply the pin. The scale is therefore pinned at 100 in the one
+         settings block the launch and recovery paths share, re-applied on the live view from
+         onConfigurationChanged before the re-layout, and the page itself declares
+         -webkit-text-size-adjust:100% — so the retry reload, a rebuilt WebView and a fresh
+         document all draw the same text at the same size. */
+  const configFn = (java.match(/public void onConfigurationChanged\(Configuration cfg\)[\s\S]*?\n    \}/) || [''])[0];
+  const zoomSites = (java.match(/setTextZoom\(/g) || []).length;
+  check('native pins text zoom at 100 across reloads (' + zoomSites + ' setTextZoom site(s))',
+    zoomSites === 2 &&
+    /s\.setTextZoom\(100\);/.test(createWebFn) &&
+    !/setTextZoom\((?!100\))/.test(java) &&
+    /import android\.content\.res\.Configuration;/.test(java) &&
+    /super\.onConfigurationChanged\(cfg\);/.test(configFn) &&
+    /WebView w = web;/.test(configFn) &&
+    /if \(w == null \|\| webGone\) return;/.test(configFn) &&
+    /w\.getSettings\(\)\.setTextZoom\(100\);/.test(configFn) &&
+    /-webkit-text-size-adjust:100%/.test(asset) &&
+    /text-size-adjust:100%/.test(asset));
+
   await browser.close();
   server.close();
 
