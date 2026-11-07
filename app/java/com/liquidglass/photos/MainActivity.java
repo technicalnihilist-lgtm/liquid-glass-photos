@@ -35,6 +35,7 @@ import android.view.WindowInsets;
 import android.webkit.JavascriptInterface;
 import android.webkit.RenderProcessGoneDetail;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
@@ -988,6 +989,41 @@ public class MainActivity extends Activity {
     /* ------------------------------------------------------------------ */
 
     private class LocalClient extends WebViewClient {
+        /* One main-frame retry per load. Cleared when a page actually finishes, so a failure after
+           a good load (a resume, a reload) gets its own retry, while a load that keeps failing
+           cannot spin. */
+        private boolean mainFrameRetried;
+
+        /* A main-frame load can fail before the page ever runs: the asset stream will not open, the
+           renderer is still coming up, or the surface is handed back mid-load. Chromium then shows
+           its own error page — and this app's page owns every control, so an error page is a dead
+           screen with no way back. One retry of the same start URL recovers it, from the same
+           intercept path, with the same UI. Sub-resource failures are not retried: the grid
+           already draws a tile for a thumb that will not decode. */
+        @Override
+        public void onReceivedError(WebView view, WebResourceRequest req, WebResourceError err) {
+            if (req == null || !req.isForMainFrame()) return;
+            Uri u = req.getUrl();
+            if (u == null || !"app.local".equals(u.getHost())) return;
+            /* A callback for a WebView this activity already replaced is ignored, so a stale view
+               cannot reload over the live one. */
+            if (view != web) return;
+            if (mainFrameRetried) return;
+            /* ERROR_UNKNOWN is what Chromium reports for a load it cancelled itself, which is not
+               a failure: reloading on it would fight the load that replaced it. */
+            if (err != null && err.getErrorCode() == WebViewClient.ERROR_UNKNOWN) return;
+            mainFrameRetried = true;
+            Log.w(TAG, "main frame error " + (err == null ? "?" : err.getErrorCode()) + ", retrying");
+            view.loadUrl(HOST + "index.html");
+        }
+
+        @Override
+        public void onPageFinished(WebView view, String url) {
+            /* A page that finished is a page that loaded, so the next failure starts with a fresh
+               retry. */
+            mainFrameRetried = false;
+        }
+
         @Override
         public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest req) {
             Uri u = req.getUrl();
