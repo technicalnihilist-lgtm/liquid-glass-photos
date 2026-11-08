@@ -13,9 +13,9 @@ A real, installable Android **photos** app — the liquid-glass UI from the orig
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.4.0, 114 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.4.1, 114 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.4.0 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.4.1 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -114,6 +114,22 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.4.1 — day 5 of the 20-day optimisation plan, twenty-third pass
+No UI change, no new features. Item 41 of the plan: drag-select hit-tests the tile it already knows.
+- Every drag frame used to call `document.elementFromPoint` at the pointer, then walk up to the enclosing `.tile`,
+  even when the pointer had not left the tile found on the previous frame — a full hit test per frame for a pointer
+  that is often sitting still or crawling inside one tile.
+- `hitTile()` now remembers the box it measured for the last tile and answers from it while the pointer is still
+  inside that box, the tile is still connected and the scroller has not moved under it (`scrollTop`/`scrollLeft`
+  unchanged). Anything else — the pointer crossing into another tile, a re-render, an auto-scroll step — re-measures
+  once with `elementFromPoint` and caches the new box, so the fallback still resolves the tile the pointer is over.
+- Selection behaves exactly as before: same tiles toggle, same swipe-right select-all, same auto-scroll edges; only the
+  per-frame cost of asking the DOM which tile is under the finger is gone.
+- `tools/test_suite.js` gains a check that pins it: the drag frame calls `hitTile(drag)` and contains no
+  `elementFromPoint`, the cached box is gated on `isConnected`, containment and unchanged scroll, and the page keeps
+  exactly two `elementFromPoint` sites (the prefetch probe and the fallback).
+- 39 checks in `tools/test_suite.js`, all PASS; `tools/test_ui.js` all PASS on 240 photos.
 
 ### 1.4.0 — day 5 of the 20-day optimisation plan, twenty-second pass
 No UI change, no new features. Item 40 of the plan: the JS bridge exposes only what the page calls.
