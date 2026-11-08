@@ -63,7 +63,7 @@ function stubFor(items, access) {
     access +
     ',insetTop:74,insetBottom:48,light:false})},access(){return ' +
     access +
-    '},requestAccess(){},photos(){return JSON.stringify({count:ITEMS.length,items:ITEMS})},favs(){return "[]"},setFav(){},share(){},delete(){},pick(){},theme(){},info(){},setTilt(){}};})();</script>'
+    '},requestAccess(){},photos(){return JSON.stringify({count:ITEMS.length,items:ITEMS})},favs(){return "[]"},setFav(){},share(){},delete(){},pick(){},theme(){},setTilt(){}};})();</script>'
   );
 }
 
@@ -607,8 +607,7 @@ function check(name, ok, detail) {
   const asset = fs.readFileSync(APP, 'utf8');
   const bgFn = (java.match(/private void applyBackground\(boolean light\)[\s\S]*?\n    \}/) || [''])[0];
   const onCreateBody = (java.match(/protected void onCreate\(Bundle savedInstanceState\)[\s\S]*?setContentView\(root\);/) || [''])[0];
-  const themeStart = java.indexOf('public void theme(boolean light)');
-  const themeFn = themeStart < 0 ? '' : java.slice(themeStart, java.indexOf('public void info(', themeStart));
+  const themeFn = (java.match(/public void theme\(boolean light\)[\s\S]*?\n        \}/) || [''])[0];
   const literalColours = (java.match(/setBackgroundColor\(0x/g) || []).length;
   check('native pre-paint background follows the theme (' + literalColours + ' literal colour(s))',
     /private static final int BG_DARK = 0xFF0B0B1A;/.test(java) &&
@@ -732,6 +731,19 @@ function check(name, ok, detail) {
     /w\.getSettings\(\)\.setTextZoom\(100\);/.test(configFn) &&
     /-webkit-text-size-adjust:100%/.test(asset) &&
     /text-size-adjust:100%/.test(asset));
+
+  /* 40. The bridge surface carries only what the page calls. `info(String)` was a log relay the
+         page stopped using: the page reaches the bridge as window.AndroidNative and every call it
+         makes is one of the eleven below. The method is gone, so the bridge no longer exposes a
+         channel nobody reads, and no call from the page can be silently swallowed by it. */
+  const exposedMethods = (java.match(/@JavascriptInterface\s+public [\w.<>\[\]]+ (\w+)\(/g) || [])
+    .map((sig) => sig.match(/(\w+)\($/)[1]);
+  const jsBridgeCalls = new Set((asset.match(/\bN\.([A-Za-z_]+)/g) || []).map((s2) => s2.slice(2)));
+  check('native bridge exposes only the methods the page calls (' + exposedMethods.length + ' method(s))',
+    exposedMethods.length === 11 &&
+    !/public void info\(String/.test(java) &&
+    exposedMethods.every((m) => jsBridgeCalls.has(m)) &&
+    jsBridgeCalls.size > 0);
 
   await browser.close();
   server.close();
