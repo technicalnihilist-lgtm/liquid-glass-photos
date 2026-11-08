@@ -763,6 +763,22 @@ function check(name, ok, detail) {
     /d\.hit=\{el:tile,/.test(hitFn) &&
     efrSites.length === 2);
 
+  /* 42. The edge auto-scroll stops when the pointer leaves the window. A drag that runs into the
+         top or bottom edge starts a 16 ms interval; once the pointer leaves the window no
+         pointermove arrives to reset it, so it used to scroll the grid until the pointer came
+         back. Each step now checks the last known pointer position against the viewport and
+         clears the interval, and the window's boundary / focus events clear it too. */
+  const stepFn = (asset.match(/function autoStep\(dir\)\{([\s\S]*?)\n\}/) || ['', ''])[1];
+  const dragRaf42 = (asset.match(/drag\.raf=requestAnimationFrame\(\(\)=>\{([\s\S]*?)\n    \}\);/) || ['', ''])[1];
+  check('drag auto-scroll stops when the pointer leaves the viewport',
+    /if\(!drag\|\|drag\.px<0\|\|drag\.py<0\|\|drag\.px>innerWidth\|\|drag\.py>innerHeight\)\{stopAutoScroll\(\);return\}/.test(stepFn) &&
+    /scr\.scrollTop\+=dir;/.test(stepFn) &&
+    /function stopAutoScroll\(\)\{if\(autoScroll\)\{clearInterval\(autoScroll\);autoScroll=null\}\}/.test(asset) &&
+    /setInterval\(\(\)=>autoStep\(-14\),16\)/.test(dragRaf42) &&
+    /setInterval\(\(\)=>autoStep\(14\),16\)/.test(dragRaf42) &&
+    /\['pointerleave','blur'\]\.forEach\(n=>addEventListener\(n,stopAutoScroll,true\)\)/.test(asset) &&
+    /addEventListener\('visibilitychange',\(\)=>\{if\(document\.hidden\)stopAutoScroll\(\)\}\)/.test(asset));
+
   await browser.close();
   server.close();
 

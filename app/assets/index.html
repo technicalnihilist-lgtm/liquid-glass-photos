@@ -660,8 +660,8 @@ scr.addEventListener('pointermove',e=>{
       const tile=hitTile(drag);
       if(tile&&tile.dataset.id)setSel(+tile.dataset.id,drag.state);
       clearInterval(autoScroll);autoScroll=null;
-      if(drag.py<150){autoScroll=setInterval(()=>{scr.scrollTop-=14},16)}
-      else if(drag.py>innerHeight-190){autoScroll=setInterval(()=>{scr.scrollTop+=14},16)}
+      if(drag.py<150)autoScroll=setInterval(()=>autoStep(-14),16);
+      else if(drag.py>innerHeight-190)autoScroll=setInterval(()=>autoStep(14),16);
     });
   }
 });
@@ -672,6 +672,19 @@ function endDrag(){
   if(drag){if(drag.raf)cancelAnimationFrame(drag.raf);drag=null;if(dragMoved)setTimeout(()=>{dragMoved=false},60)}
 }
 ['pointerup','pointercancel','pointerleave'].forEach(n=>scr.addEventListener(n,endDrag));
+// The pointer can leave the window while the finger is still down, and out
+// there no pointermove arrives to reset the edge auto-scroll: the interval
+// started at the edge used to keep scrolling the grid until the pointer came
+// back or was lifted. Every step now re-checks the last known pointer position
+// against the viewport and drops the interval the moment it is outside, and
+// the window's own boundary and focus events stop it too.
+function stopAutoScroll(){if(autoScroll){clearInterval(autoScroll);autoScroll=null}}
+function autoStep(dir){
+  if(!drag||drag.px<0||drag.py<0||drag.px>innerWidth||drag.py>innerHeight){stopAutoScroll();return}
+  scr.scrollTop+=dir;
+}
+['pointerleave','blur'].forEach(n=>addEventListener(n,stopAutoScroll,true));
+document.addEventListener('visibilitychange',()=>{if(document.hidden)stopAutoScroll()});
 scr.addEventListener('click',e=>{
   const t=e.target.closest('.tile');
   if(t){

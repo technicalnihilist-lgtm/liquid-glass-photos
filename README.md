@@ -13,9 +13,9 @@ A real, installable Android **photos** app — the liquid-glass UI from the orig
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.4.1, 114 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.4.2, 114 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.4.1 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.4.2 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -114,6 +114,22 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.4.2 — day 5 of the 20-day optimisation plan, twenty-fourth pass
+No UI change, no new features. Item 42 of the plan: the edge auto-scroll stops when the pointer leaves the screen.
+- A drag that reached the top or bottom edge of the grid started a 16 ms `setInterval` that scrolled 14 px a step.
+  The interval was only ever reset or cleared by the next `pointermove` — and once the pointer leaves the window
+  there is no next `pointermove`, so the grid kept scrolling on its own until the finger came back or was lifted.
+- The scroll step now runs through `autoStep(dir)`, which re-checks the last known pointer position against the
+  viewport on every tick and clears the interval the moment it is outside (`px`/`py` < 0 or beyond `innerWidth`/
+  `innerHeight`). The window's own `pointerleave` and `blur` (capture phase) clear it as well, and so does a
+  `visibilitychange` that hides the page, so a drag interrupted by leaving the app or locking the screen no longer
+  leaves a scroll loop running behind it.
+- Dragging inside the grid is unchanged: the same edges start it, the same 14 px per 16 ms speed, the same tiles
+  toggle as they pass under the pointer, and a pointer that stays inside the viewport scrolls exactly as before.
+- `tools/test_suite.js` gains a check that pins it: the scroll step is the guarded `autoStep`, the frame starts it
+  for both edges, and the boundary, blur and visibility listeners are present.
+- 40 checks in `tools/test_suite.js`, all PASS; `tools/test_ui.js` all PASS on 240 photos.
 
 ### 1.4.1 — day 5 of the 20-day optimisation plan, twenty-third pass
 No UI change, no new features. Item 41 of the plan: drag-select hit-tests the tile it already knows.
