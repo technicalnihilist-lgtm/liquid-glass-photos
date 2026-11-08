@@ -13,9 +13,9 @@ A real, installable Android **photos** app — the liquid-glass UI from the orig
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.3.8, 114 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.4.0, 114 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.3.9 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.4.0 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -114,6 +114,19 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.4.0 — day 5 of the 20-day optimisation plan, twenty-second pass
+No UI change, no new features. Item 40 of the plan: the JS bridge exposes only what the page calls.
+- The `AndroidNative` bridge carried a twelfth method, `info(String)`, that relayed a string into `Log.i`. The page
+  never called it: every bridge call it makes is one of `meta`, `access`, `requestAccess`, `photos`, `favs`,
+  `setFav`, `share`, `delete`, `setTilt`, `pick`, `theme` — `parse`/`stringify` are the JSON shims, not the bridge.
+- The method and its `@JavascriptInterface` annotation are gone, so the WebView no longer publishes a channel the
+  page never opens and nothing can be routed into the log by a name nobody checks.
+- The test harness stubs (`tools/test_suite.js`, `tools/test_ui.js`, `tools/bench_first_frame.js`) drop the same
+  `info(){}` from their mock bridge, so the stub matches the real surface exactly.
+- `tools/test_suite.js` gains a check that pins it: exactly eleven `@JavascriptInterface` methods, no `info(String)`,
+  and every exposed method present in the set the page actually calls.
+- 38 checks in `tools/test_suite.js`, all PASS; `tools/test_ui.js` all PASS on 240 photos.
 
 ### 1.3.9 — day 4 of the 20-day optimisation plan, twenty-first pass
 No UI change, no new features. Item 39 of the plan: text autosizing stays off across a reload.
