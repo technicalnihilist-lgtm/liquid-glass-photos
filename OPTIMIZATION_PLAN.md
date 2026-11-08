@@ -84,7 +84,7 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
 
 ## Day 5 — selection and gestures
 
-- [ ] 41. Make drag-select hit-testing use the last known tile index instead of `elementFromPoint` when the pointer stays inside it.
+- [x] 41. Make drag-select hit-testing use the last known tile index instead of `elementFromPoint` when the pointer stays inside it — done: `hitTile()` caches the box it measured for the tile under the pointer and reuses that tile while the pointer is still inside the box, the tile is still connected and `scrollTop`/`scrollLeft` have not moved; crossing into another tile, a re-render or an auto-scroll step re-measures once, so `elementFromPoint` now runs only when the pointer leaves the tile it was on, not on every drag frame. `tools/test_suite.js` fails if the drag frame stops calling `hitTile()`, if `elementFromPoint` returns to that frame, or if the containment/scroll/`isConnected` guards go away. *(1.4.1)*
 - [ ] 42. Stop the auto-scroll interval when the pointer leaves the screen entirely.
 - [ ] 43. Cancel an in-flight drag on `pointercancel` (audit).
 - [ ] 44. Prevent drag-select from starting on a tap (only after 6 px of movement).
