@@ -67,7 +67,7 @@ const stub =
   COUNT +
   ';const ITEMS=' +
   JSON.stringify(ITEMS) +
-  ';window.AndroidNative={meta(){return JSON.stringify({sdk:34,device:"Pixel 8",android:"14",access:true,insetTop:74,insetBottom:48,light:false})},access(){return true},requestAccess(){},photos(){return JSON.stringify({count:ITEMS.length,items:ITEMS})},favs(){return "[]"},setFav(){},share(){},delete(){},pick(){},theme(){},info(){},setTilt(){}};})();</script>';
+  ';window.AndroidNative={meta(){return JSON.stringify({sdk:34,device:"Pixel 8",android:"14",access:true,insetTop:74,insetBottom:48,light:false})},access(){return true},requestAccess(){},photos(){return JSON.stringify({count:ITEMS.length,items:ITEMS})},favs(){return "[]"},setFav(){},share(){},delete(){},pick(){},theme(){},setTilt(){}};})();</script>';
 
 const html = fs
   .readFileSync(APP, 'utf8')
