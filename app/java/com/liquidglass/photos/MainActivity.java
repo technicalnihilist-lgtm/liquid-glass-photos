@@ -1504,11 +1504,6 @@ public class MainActivity extends Activity {
                 }
             });
         }
-
-        @JavascriptInterface
-        public void info(String msg) {
-            Log.i(TAG, msg == null ? "" : msg);
-        }
     }
 
     /* ------------------------------------------------------------------ */
