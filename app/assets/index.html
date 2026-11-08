@@ -595,6 +595,22 @@ function setSel(id,on){
   selTitle();
 }
 function toggleSel(id){ setSel(id,!S.sel.has(id)); renderHead(); }
+// The tile under the pointer, remembered so a frame that stays inside it skips
+// the DOM hit test entirely. The box is trusted only while the pointer is
+// still inside it, the tile is still in the DOM and the scroller has not moved
+// under it; anything else re-measures once and caches the new box.
+function hitTile(d){
+  const c=d.hit;
+  if(c&&c.el.isConnected&&d.px>=c.l&&d.px<=c.r&&d.py>=c.t&&d.py<=c.b&&
+     scr.scrollTop===c.st&&scr.scrollLeft===c.sl)return c.el;
+  const el=document.elementFromPoint(d.px,d.py);
+  const tile=el&&el.closest?el.closest('.tile'):null;
+  if(tile){
+    const r=tile.getBoundingClientRect();
+    d.hit={el:tile,l:r.left,r:r.right,t:r.top,b:r.bottom,st:scr.scrollTop,sl:scr.scrollLeft};
+  }else d.hit=null;
+  return tile;
+}
 function selectAll(){
   const list=current();
   if(!list.length)return;
@@ -641,8 +657,7 @@ scr.addEventListener('pointermove',e=>{
     drag.raf=requestAnimationFrame(()=>{
       if(!drag)return;
       drag.raf=0;
-      const el=document.elementFromPoint(drag.px,drag.py);
-      const tile=el&&el.closest?el.closest('.tile'):null;
+      const tile=hitTile(drag);
       if(tile&&tile.dataset.id)setSel(+tile.dataset.id,drag.state);
       clearInterval(autoScroll);autoScroll=null;
       if(drag.py<150){autoScroll=setInterval(()=>{scr.scrollTop-=14},16)}
