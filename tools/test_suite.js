@@ -745,6 +745,24 @@ function check(name, ok, detail) {
     exposedMethods.every((m) => jsBridgeCalls.has(m)) &&
     jsBridgeCalls.size > 0);
 
+  /* 41. Drag-select hit-tests the tile it already knows. Once a frame has found the tile under
+         the pointer, later frames that stay inside that tile's box reuse it instead of asking
+         elementFromPoint again: the box is trusted only while the pointer is still in it, the
+         tile is still connected and the scroller has not moved under it. The elementFromPoint
+         call stays as the fallback for a pointer that crosses into another tile. */
+  const dragRaf = (asset.match(/drag\.raf=requestAnimationFrame\(\(\)=>\{([\s\S]*?)clearInterval\(autoScroll\);autoScroll=null;/) || ['', ''])[1];
+  const hitFn = (asset.match(/function hitTile\(d\)\{([\s\S]*?)\n\}/) || ['', ''])[1];
+  const efrSites = asset.match(/elementFromPoint/g) || [];
+  check('drag hit-test reuses the last tile while the pointer stays in it (' + efrSites.length + ' elementFromPoint site(s))',
+    /const tile=hitTile\(drag\);/.test(dragRaf) &&
+    !/elementFromPoint/.test(dragRaf) &&
+    /c\.el\.isConnected/.test(hitFn) &&
+    /d\.px>=c\.l&&d\.px<=c\.r&&d\.py>=c\.t&&d\.py<=c\.b/.test(hitFn) &&
+    /scr\.scrollTop===c\.st&&scr\.scrollLeft===c\.sl/.test(hitFn) &&
+    /return c\.el;/.test(hitFn) &&
+    /d\.hit=\{el:tile,/.test(hitFn) &&
+    efrSites.length === 2);
+
   await browser.close();
   server.close();
 
