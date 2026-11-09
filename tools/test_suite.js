@@ -779,6 +779,26 @@ function check(name, ok, detail) {
     /\['pointerleave','blur'\]\.forEach\(n=>addEventListener\(n,stopAutoScroll,true\)\)/.test(asset) &&
     /addEventListener\('visibilitychange',\(\)=>\{if\(document\.hidden\)stopAutoScroll\(\)\}\)/.test(asset));
 
+  /* 43. A pointercancel tears an in-flight drag down. The browser takes the gesture away when it
+         starts a native scroll, the app goes to the background or a system gesture wins, and no
+         pointerup follows — the drag used to stay in flight with its pending frame and its edge
+         auto-scroll. The scroller only sees that cancel when the pointer was captured to it or was
+         still over it, so the window listens too (capture phase), and the drag's own pointer id is
+         checked so a cancel for another finger does not end this drag. */
+  const endFn = (asset.match(/function endDrag\(\)\{([\s\S]*?)\n\}/) || ['', ''])[1];
+  const cancelFn = (asset.match(/function cancelDrag\(e\)\{([\s\S]*?)\n\}/) || ['', ''])[1];
+  check('drag is cancelled when the browser takes the pointer (pointercancel)',
+    /function cancelDrag\(e\)\{/.test(asset) &&
+    /if\(e&&e\.pointerId!=null&&dragPid!=null&&e\.pointerId!==dragPid\)return;/.test(cancelFn) &&
+    /endDrag\(\);/.test(cancelFn) &&
+    /addEventListener\('pointercancel',cancelDrag,true\)/.test(asset) &&
+    /\['pointerup','pointercancel','pointerleave'\]\.forEach\(n=>scr\.addEventListener\(n,endDrag\)\)/.test(asset) &&
+    /lpStart=\{x:e\.clientX,y:e\.clientY\}; dragPid=e\.pointerId;/.test(asset) &&
+    /scr\.releasePointerCapture\(dragPid\)/.test(endFn) &&
+    /dragPid=null;/.test(endFn) &&
+    /cancelAnimationFrame\(drag\.raf\)/.test(endFn) &&
+    /clearInterval\(autoScroll\);autoScroll=null;/.test(endFn));
+
   await browser.close();
   server.close();
 
