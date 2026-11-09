@@ -216,6 +216,47 @@ function check(name, ok, detail) {
     ', 3 px ' + preDrag + ', drag ' + dragSel + ', after ' + afterDrag + ')',
     tapSel === 1 && tapSel2 === 0 && preDrag === 0 && dragSel >= 1 && afterDrag === dragSel);
 
+  /* 7c. (45) A long press starts the selection when it fires — on the press, not on the lift —
+         and the release that follows does not toggle the tile a second time. The same gesture
+         used to work only outside selection mode: inside it the press armed nothing, the timer
+         never ran, and the tile was selected by the click on release instead. */
+  const centerOf = (i) => page.evaluate((k) => {
+    const t = document.querySelectorAll('.tile')[k];
+    const r = t.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  }, i);
+  const onCount = () => page.$$eval('.tile.on', (n) => n.length);
+  const hold = async (p, ms) => {
+    await page.mouse.move(p.x, p.y);
+    await page.mouse.down();
+    await settle(ms);
+  };
+  const release = async () => {
+    await page.mouse.up();
+    await settle(320);
+  };
+  const lp1 = await centerOf(0);
+  await hold(lp1, 650);
+  const lpHeld = await onCount();          // selection mode entered, tile painted while held
+  await release();
+  const lpUp = await onCount();            // and the lift changes nothing
+  const lp2 = await centerOf(3);
+  await hold(lp2, 650);
+  const lpSelHeld = await onCount();       // second hold, now in selection mode: painted on the press
+  await release();
+  const lpSelUp = await onCount();
+  await hold(lp2, 650);                    // holding a selected tile deselects it, once, at the press
+  const lpOffHeld = await onCount();
+  await release();
+  const lpOffUp = await onCount();
+  await page.click('[data-act="endsel"]');
+  await page.waitForFunction(() => document.querySelectorAll('.tile.on').length === 0, { timeout: 10000 });
+  check('long press starts selection on the press, the release does not toggle again (' +
+    'held ' + lpHeld + ', up ' + lpUp + ', sel-mode held ' + lpSelHeld + ', up ' + lpSelUp +
+    ', deselect held ' + lpOffHeld + ', up ' + lpOffUp + ')',
+    lpHeld === 1 && lpUp === 1 && lpSelHeld === 2 && lpSelUp === 2 &&
+    lpOffHeld === 1 && lpOffUp === 1);
+
   /* 8. tapping a tile opens the viewer, close returns to the grid */
   await page.click('.tile');
   await page.waitForSelector('.viewer .stage img', { timeout: 10000 });
@@ -853,6 +894,23 @@ function check(name, ok, detail) {
     thresholdAt > -1 && applyAt > thresholdAt &&
     /if\(!drag\.applied\)\{[\s\S]*?drag\.applied=true;[\s\S]*?setPointerCapture\(e\.pointerId\)[\s\S]*?setSel\(drag\.id,drag\.state\);/.test(moveFn) &&
     /if\(dragMoved\)\{dragMoved=false;return\}/.test(asset));
+
+  /* 45. The long press is armed once, before the selection-mode branch, so it runs in both
+         modes; its timer does all the work — enter selection mode, then select the captured
+         tile once — and lpFired swallows the click the release produces, so the lift cannot
+         toggle the same tile again. A press that turns into a drag drops the timer, so a slow
+         drag-select is never mistaken for a hold. */
+  const lpArmAt = downFn.indexOf('lpTimer=setTimeout(');
+  const modeBranchAt = downFn.indexOf('if(S.selMode){');
+  check('long-press timer is armed for both modes and dropped once a drag starts',
+    lpArmAt > -1 && modeBranchAt > lpArmAt &&
+    !/lpTimer=setTimeout\(/.test(selBranch) &&
+    /const id=\+t\.dataset\.id;/.test(downFn) &&
+    /lpTimer=setTimeout\(\(\)=>\{lpTimer=null;lpFired=true;/.test(downFn) &&
+    /toggleSel\(id\)\},430\);/.test(downFn) &&
+    /if\(lpFired\)\{lpFired=false;return\}/.test(asset) &&
+    /if\(lpTimer\)\{clearTimeout\(lpTimer\);lpTimer=null\}/.test(moveFn) &&
+    moveFn.indexOf('if(lpTimer){clearTimeout(lpTimer);lpTimer=null}') > moveFn.indexOf('if(!dragMoved)return;'));
 
   await browser.close();
   server.close();
