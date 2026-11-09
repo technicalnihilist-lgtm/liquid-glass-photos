@@ -15,7 +15,7 @@ A real, installable Android **photos** app — the liquid-glass UI from the orig
 
 **[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.4.3, 118 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.4.3 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.4.4 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -114,6 +114,23 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.4.4 — day 5 of the 20-day optimisation plan, twenty-sixth pass
+No UI change, no new features. Item 44 of the plan: a drag-select no longer starts on a tap.
+- In selection mode the `pointerdown` on a tile painted that tile immediately and took the pointer capture with
+  it, so a drag-select began before the finger had moved at all. Two things followed: a finger that only meant to
+  scroll the grid painted the tile it started on, and a tap was answered on the way down while the click that
+  followed could not toggle it back — the capture had retargeted that click to the scroller, where it hit nothing.
+- The tile under the finger is still chosen on `pointerdown` (its on/off state is decided before anything can
+  change), but nothing is painted and no capture is taken until the pointer has travelled the 6 px threshold in
+  `pointermove`. The first frame past the threshold takes the capture and paints the anchor tile once, so the rest
+  of the drag behaves exactly as before.
+- A tap therefore ends up in the click handler, which owns it again: one toggle per tap, and a tap that never moves
+  selects nothing on the way down. Same tiles, same swipe-right select-all, same edges, same auto-scroll.
+- `tools/test_suite.js` gains two checks that pin it: one drives a real tap and a real 40 px drag in headless
+  Chromium (tap toggles once, 3 px selects nothing, the drag paints), the other holds the shape — no `setSel` or
+  `setPointerCapture` in the `pointerdown` branch, and the paint after the 6 px guard.
+- 43 checks in `tools/test_suite.js`, all PASS.
 
 ### 1.4.3 — day 5 of the 20-day optimisation plan, twenty-fifth pass
 No UI change, no new features. Item 43 of the plan: an in-flight drag is cancelled when the browser takes the pointer.
