@@ -97,7 +97,16 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
   the same edge auto-scroll. `tools/test_suite.js` drives a real tap and a real 40 px drag in headless Chromium
   (tap 1 -> 0, 3 px selects nothing, the drag paints and the release does not toggle) and pins the shape: no
   `setSel`/`setPointerCapture` in the pointerdown branch and the paint after the 6 px guard. *(1.4.4)*
-- [ ] 45. Make long-press start selection without also selecting on release.
+- [x] 45. Make long-press start selection without also selecting on release — done: the 430 ms timer is now
+  armed once, before the selection-mode branch, so the gesture behaves the same in both modes; everything it does
+  happens when it fires (enter selection mode, then select the captured tile exactly once), and `lpFired` swallows
+  the click the release produces, so the lift can never toggle the same tile a second time. Inside selection mode
+  the press used to arm nothing at all and the tile was selected by the click on release, so holding a finger gave
+  no feedback until it came off. A press that turns into a drag drops the timer, so a slow drag-select is never
+  mistaken for a hold. `tools/test_suite.js` gains two checks that pin it: one holds a real pointer for 650 ms and
+  reads the grid while it is still down (selection mode entered, tile painted, nothing more on release, and the
+  same for a deselect), the other holds the shape — one arming site ahead of the mode branch, `toggleSel(id)` in
+  the timer, the `lpFired` guard in the click, and the timer dropped past the drag threshold. *(1.4.5)*
 - [ ] 46. Keep the selection count text in sync when the list changes under it.
 - [ ] 47. Clear the drag state when the screen re-renders.
 - [ ] 48. Add `touch-action: pan-y` handling so a diagonal drag still scrolls.
