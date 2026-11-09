@@ -625,7 +625,16 @@ function selectAll(){
 
 scr.addEventListener('pointerdown',e=>{
   const t=e.target.closest('.tile'); if(!t)return;
+  const id=+t.dataset.id;
   lpFired=false; lpStart={x:e.clientX,y:e.clientY}; dragPid=e.pointerId;
+  // The long press is armed in both modes, and everything it does happens when it fires:
+  // enter selection mode, then select the tile exactly once — on the press, not on the
+  // lift. lpFired swallows the click the release would otherwise produce, so a long press
+  // that has already started the selection can never toggle the same tile a second time on
+  // the way up. In selection mode the gesture used to fall straight through to that click,
+  // so holding a finger on a tile gave no feedback at all and the selection appeared only
+  // when the finger came off; now it starts at 430 ms in either mode.
+  lpTimer=setTimeout(()=>{lpTimer=null;lpFired=true;plop(1.2);buzz();if(!S.selMode){S.selMode=true;S.sel.clear();renderHead();renderTabs()}toggleSel(id)},430);
   if(S.selMode){
     // Armed here, applied on movement: the tile under the finger is chosen on the way
     // down (its state is decided before anything can change) but nothing is selected
@@ -638,7 +647,6 @@ scr.addEventListener('pointerdown',e=>{
     dragMoved=false;
     return;
   }
-  lpTimer=setTimeout(()=>{lpFired=true;plop(1.2);buzz();if(!S.selMode){S.selMode=true;S.sel.clear();renderHead();renderTabs()}toggleSel(+t.dataset.id)},430);
 });
 
 scr.addEventListener('pointermove',e=>{
@@ -646,6 +654,8 @@ scr.addEventListener('pointermove',e=>{
   if(!drag)return;
   if(Math.hypot(e.clientX-drag.x,e.clientY-drag.y)>6)dragMoved=true;
   if(!dragMoved)return;
+  // the press has become a drag, so it can no longer turn into a long press
+  if(lpTimer){clearTimeout(lpTimer);lpTimer=null}
   if(e.cancelable)e.preventDefault();
   if(!drag.applied){
     // first frame past the threshold: this is where the drag actually starts, so the
