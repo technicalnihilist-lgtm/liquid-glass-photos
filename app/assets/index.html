@@ -627,10 +627,15 @@ scr.addEventListener('pointerdown',e=>{
   const t=e.target.closest('.tile'); if(!t)return;
   lpFired=false; lpStart={x:e.clientX,y:e.clientY}; dragPid=e.pointerId;
   if(S.selMode){
+    // Armed here, applied on movement: the tile under the finger is chosen on the way
+    // down (its state is decided before anything can change) but nothing is selected
+    // until the pointer has travelled the 6 px threshold in pointermove. A tap that
+    // never moves therefore paints nothing, and the click below owns it — one toggle,
+    // not two — while a finger that only meant to scroll no longer paints the tile it
+    // started on. The pointer is captured at the same moment, not here, so a tap's
+    // click still lands on the tile instead of being retargeted to the scroller.
     drag={state:!S.sel.has(+t.dataset.id),x:e.clientX,y:e.clientY,id:+t.dataset.id};
     dragMoved=false;
-    setSel(drag.id,drag.state);
-    try{scr.setPointerCapture(e.pointerId)}catch(err){}
     return;
   }
   lpTimer=setTimeout(()=>{lpFired=true;plop(1.2);buzz();if(!S.selMode){S.selMode=true;S.sel.clear();renderHead();renderTabs()}toggleSel(+t.dataset.id)},430);
@@ -642,6 +647,13 @@ scr.addEventListener('pointermove',e=>{
   if(Math.hypot(e.clientX-drag.x,e.clientY-drag.y)>6)dragMoved=true;
   if(!dragMoved)return;
   if(e.cancelable)e.preventDefault();
+  if(!drag.applied){
+    // first frame past the threshold: this is where the drag actually starts, so the
+    // capture is taken now and the tile the drag began on is painted once
+    drag.applied=true;
+    try{scr.setPointerCapture(e.pointerId)}catch(err){}
+    setSel(drag.id,drag.state);
+  }
   // swipe right to the screen edge -> everything in view gets selected
   if(drag.state&&e.clientX>innerWidth*.94){
     const list=current();
