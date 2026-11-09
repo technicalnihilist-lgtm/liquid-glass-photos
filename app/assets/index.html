@@ -581,7 +581,7 @@ function go(tab,album=null){
 
 /* ---------- selection + taps ---------- */
 let lpTimer=null,lpFired=false,lpStart=null;
-let drag=null, dragMoved=false, autoScroll=null;
+let drag=null, dragMoved=false, autoScroll=null, dragPid=null;
 const scr=$('#screen');
 
 function selTitle(){
@@ -625,7 +625,7 @@ function selectAll(){
 
 scr.addEventListener('pointerdown',e=>{
   const t=e.target.closest('.tile'); if(!t)return;
-  lpFired=false; lpStart={x:e.clientX,y:e.clientY};
+  lpFired=false; lpStart={x:e.clientX,y:e.clientY}; dragPid=e.pointerId;
   if(S.selMode){
     drag={state:!S.sel.has(+t.dataset.id),x:e.clientX,y:e.clientY,id:+t.dataset.id};
     dragMoved=false;
@@ -669,9 +669,29 @@ scr.addEventListener('pointermove',e=>{
 function endDrag(){
   clearTimeout(lpTimer);lpTimer=null;
   clearInterval(autoScroll);autoScroll=null;
-  if(drag){if(drag.raf)cancelAnimationFrame(drag.raf);drag=null;if(dragMoved)setTimeout(()=>{dragMoved=false},60)}
+  if(drag){
+    if(drag.raf)cancelAnimationFrame(drag.raf);
+    // the capture outlives the drag otherwise: it would keep retargeting every
+    // later pointer event at the scroller
+    if(dragPid!=null){try{scr.releasePointerCapture(dragPid)}catch(err){}}
+    drag=null;if(dragMoved)setTimeout(()=>{dragMoved=false},60)
+  }
+  dragPid=null;
 }
 ['pointerup','pointercancel','pointerleave'].forEach(n=>scr.addEventListener(n,endDrag));
+// A pointercancel is the browser taking the gesture away (it started a native
+// scroll, the app went to the background, a system gesture won). No pointerup
+// follows it, so the drag has to be torn down here or it stays in flight with
+// its pending frame and edge auto-scroll. The scroller only sees the cancel if
+// the pointer was captured to it or was still over it; when the capture never
+// took, the cancel lands on whatever is under the finger instead, so the window
+// listens too, in the capture phase. A cancel for a different finger must not
+// end this drag.
+function cancelDrag(e){
+  if(e&&e.pointerId!=null&&dragPid!=null&&e.pointerId!==dragPid)return;
+  endDrag();
+}
+addEventListener('pointercancel',cancelDrag,true);
 // The pointer can leave the window while the finger is still down, and out
 // there no pointermove arrives to reset the edge auto-scroll: the interval
 // started at the edge used to keep scrolling the grid until the pointer came
