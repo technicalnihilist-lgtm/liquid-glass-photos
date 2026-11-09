@@ -183,6 +183,39 @@ function check(name, ok, detail) {
   await page.waitForFunction(() => document.querySelectorAll('.tile.on').length === 0, { timeout: 10000 });
   check('select-all marks ' + selAll + ' tiles, exit clears', selAll === COUNT);
 
+  /* 7b. (44) A tap in selection mode toggles exactly the tile under the finger, once. The
+         selection is armed on pointerdown but applied only after the pointer has moved 6 px,
+         so a tap that never moves is left to the click handler — one toggle, not two — and a
+         real drag still paints every tile it crosses. */
+  await page.click('[data-act="startsel"]');
+  await page.waitForSelector('#selbar:not(.hide)', { timeout: 10000 });
+  await page.click('.tile');
+  await settle(300);
+  const tapSel = await page.$$eval('.tile.on', (n) => n.length);
+  await page.click('.tile');
+  await settle(300);
+  const tapSel2 = await page.$$eval('.tile.on', (n) => n.length);
+  const c0 = await page.$eval('.tile', (t) => {
+    const r = t.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  });
+  await page.mouse.move(c0.x, c0.y);
+  await page.mouse.down();
+  await page.mouse.move(c0.x, c0.y + 3);
+  await settle(120);
+  const preDrag = await page.$$eval('.tile.on', (n) => n.length);
+  await page.mouse.move(c0.x, c0.y + 40, { steps: 4 });
+  await settle(120);
+  const dragSel = await page.$$eval('.tile.on', (n) => n.length);
+  await page.mouse.up();
+  await settle(200);
+  const afterDrag = await page.$$eval('.tile.on', (n) => n.length);
+  await page.click('[data-act="endsel"]');
+  await page.waitForFunction(() => document.querySelectorAll('.tile.on').length === 0, { timeout: 10000 });
+  check('selection: a tap toggles one tile once, a 6 px drag selects (tap ' + tapSel + '/' + tapSel2 +
+    ', 3 px ' + preDrag + ', drag ' + dragSel + ', after ' + afterDrag + ')',
+    tapSel === 1 && tapSel2 === 0 && preDrag === 0 && dragSel >= 1 && afterDrag === dragSel);
+
   /* 8. tapping a tile opens the viewer, close returns to the grid */
   await page.click('.tile');
   await page.waitForSelector('.viewer .stage img', { timeout: 10000 });
@@ -798,6 +831,28 @@ function check(name, ok, detail) {
     /dragPid=null;/.test(endFn) &&
     /cancelAnimationFrame\(drag\.raf\)/.test(endFn) &&
     /clearInterval\(autoScroll\);autoScroll=null;/.test(endFn));
+
+  /* 44. A drag-select no longer starts on the way down. The pointerdown in selection mode used
+         to call setSel() and take the pointer capture immediately, so the tile under the finger
+         was painted before the finger moved at all — a tap selected it on the way down and the
+         click that followed could not toggle it back (the capture had retargeted it to the
+         scroller), and a finger that only meant to scroll painted the tile it started on. The
+         tile is still chosen on pointerdown, but the selection, the capture and the first paint
+         now wait for the 6 px threshold in pointermove, so the click owns a tap (one toggle) and
+         only a real drag paints. */
+  const downFn = (asset.match(/scr\.addEventListener\('pointerdown',e=>\{([\s\S]*?)\n\}\);/) || ['', ''])[1];
+  const moveFn = (asset.match(/scr\.addEventListener\('pointermove',e=>\{([\s\S]*?)\n\}\);/) || ['', ''])[1];
+  const selBranch = (downFn.match(/if\(S\.selMode\)\{([\s\S]*?)return;\n  \}/) || ['', ''])[1];
+  const applyAt = moveFn.indexOf('drag.applied');
+  const thresholdAt = moveFn.indexOf('>6)dragMoved=true');
+  check('drag-select starts only after 6 px of movement, so a tap toggles once',
+    /drag=\{state:!S\.sel\.has\(\+t\.dataset\.id\),x:e\.clientX,y:e\.clientY,id:\+t\.dataset\.id\};/.test(selBranch) &&
+    !/setSel\(/.test(selBranch) &&
+    !/setPointerCapture/.test(selBranch) &&
+    /if\(!dragMoved\)return;/.test(moveFn) &&
+    thresholdAt > -1 && applyAt > thresholdAt &&
+    /if\(!drag\.applied\)\{[\s\S]*?drag\.applied=true;[\s\S]*?setPointerCapture\(e\.pointerId\)[\s\S]*?setSel\(drag\.id,drag\.state\);/.test(moveFn) &&
+    /if\(dragMoved\)\{dragMoved=false;return\}/.test(asset));
 
   await browser.close();
   server.close();
