@@ -13,9 +13,9 @@ A real, installable Android **photos** app — the liquid-glass UI from the orig
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.4.3, 118 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.4.5, 118 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.4.4 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.4.5 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -114,6 +114,24 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.4.5 — day 5 of the 20-day optimisation plan, twenty-seventh pass
+No UI change, no new features. Item 45 of the plan: a long press starts the selection on the press, and the release does not select again.
+- The 430 ms timer was armed only outside selection mode. Inside it the press armed nothing, so holding a finger on
+  a tile produced no feedback at all: the tile was selected by the `click` that arrived when the finger came off,
+  and the selection appeared to start on the release rather than on the press.
+- The timer is now armed once, before the selection-mode branch, so the gesture is the same in both modes and does
+  all of its work when it fires — enter selection mode, then select the tile under the finger exactly once, at 430 ms.
+- The release is then only a release. The `lpFired` flag that the timer sets is what the click handler already
+  checks, so the click a lift produces is swallowed instead of toggling the same tile back off; holding a selected
+  tile deselects it once, on the press, and the lift leaves it that way.
+- A press that turns into a drag drops the timer as soon as the 6 px threshold is crossed, so a slow drag-select is
+  never mistaken for a hold. Same tiles, same swipe-right select-all, same auto-scroll, same tap behaviour.
+- `tools/test_suite.js` gains two checks that pin it: one holds a real pointer for 650 ms and reads the grid while
+  the pointer is still down (selection mode entered and the tile painted, nothing more on release, and the same for
+  a deselect), the other holds the shape — one arming site ahead of the mode branch, `toggleSel(id)` in the timer,
+  the `lpFired` guard in the click, and the timer dropped past the drag threshold.
+- 45 checks in `tools/test_suite.js`, all PASS.
 
 ### 1.4.4 — day 5 of the 20-day optimisation plan, twenty-sixth pass
 No UI change, no new features. Item 44 of the plan: a drag-select no longer starts on a tap.
