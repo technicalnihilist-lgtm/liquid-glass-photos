@@ -257,6 +257,52 @@ function check(name, ok, detail) {
     lpHeld === 1 && lpUp === 1 && lpSelHeld === 2 && lpSelUp === 2 &&
     lpOffHeld === 1 && lpOffUp === 1);
 
+  /* 7d. (46) The count in the title follows the list when the list changes under it. A
+         selection is a set of photo ids, and nothing re-checked that those ids were still in
+         the list the user is looking at: a library reload after a delete or a resume, and a
+         search query or a chip typed under an open selection, all left the title counting
+         photos that were no longer on screen (and the bar acting on them). Here a long press
+         selects one search result, then the query is narrowed until that photo drops out of
+         the results — the count must fall back to the empty-selection text on its own. */
+  const ttlText = () => page.$eval('.head .ttl', (t) => t.textContent.trim());
+  await page.click('.tabs .round');
+  await page.waitForSelector('#q', { timeout: 10000 });
+  await page.type('#q', 'Camera');
+  await page.waitForFunction(() => document.querySelectorAll('#res .tile').length > 0, { timeout: 10000 });
+  const r0 = await page.$eval('#res .tile', (t) => {
+    const b = t.getBoundingClientRect();
+    return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+  });
+  await page.mouse.move(r0.x, r0.y);
+  await page.mouse.down();
+  await settle(650);
+  await page.mouse.up();
+  await settle(320);
+  const countBefore = await ttlText();
+  const onBefore = await page.$$eval('#res .tile.on', (n) => n.length);
+  await page.click('#q');
+  await page.keyboard.type('zzz');
+  await page.waitForFunction(() => {
+    const e = document.querySelector('#res .empty');
+    return !!e && /no matches/i.test(e.textContent);
+  }, { timeout: 10000 });
+  await settle(200);
+  const countAfter = await ttlText();
+  const onAfter = await page.$$eval('.tile.on', (n) => n.length);
+  await page.click('#q', { clickCount: 3 });
+  await page.keyboard.press('Backspace');
+  await page.waitForFunction(() => {
+    const e = document.querySelector('#res .empty');
+    return !!e && /search by name/i.test(e.textContent);
+  }, { timeout: 10000 });
+  await page.click('[data-act="endsel"]');
+  await page.click('#pill button[data-tab="library"]');
+  await page.waitForFunction((n) => document.querySelectorAll('.tile').length === n, { timeout: 10000 }, COUNT);
+  await settle(250);
+  check('selection count follows the list when the list changes under it (' +
+    countBefore + ' / ' + countAfter + ', on ' + onBefore + ' -> ' + onAfter + ')',
+    countBefore === '1 selected' && countAfter === 'Select items' && onBefore === 1 && onAfter === 0);
+
   /* 8. tapping a tile opens the viewer, close returns to the grid */
   await page.click('.tile');
   await page.waitForSelector('.viewer .stage img', { timeout: 10000 });
@@ -911,6 +957,22 @@ function check(name, ok, detail) {
     /if\(lpFired\)\{lpFired=false;return\}/.test(asset) &&
     /if\(lpTimer\)\{clearTimeout\(lpTimer\);lpTimer=null\}/.test(moveFn) &&
     moveFn.indexOf('if(lpTimer){clearTimeout(lpTimer);lpTimer=null}') > moveFn.indexOf('if(!dragMoved)return;'));
+
+  /* 46. The selection count is re-derived from the current list on every render. syncSel()
+         drops the ids that have left it (a reload, a query, a chip) and both render paths call
+         it before they paint, so the title can never count a photo the user cannot see, while
+         a selected photo that is still in the list keeps its .on state. */
+  const syncFn = (asset.match(/function syncSel\(list\)\{([\s\S]*?)\n\}/) || ['', ''])[1];
+  const screenFn = (asset.match(/function renderScreen\(keepScroll=true\)\{([\s\S]*?)\n  const sc=/) || ['', ''])[1];
+  const resultsFn = (asset.match(/function renderResults\(\)\{([\s\S]*?)\n  setPrefetchList/) || ['', ''])[1];
+  check('selection count is re-synced with the current list on every render',
+    /function syncSel\(list\)\{/.test(asset) &&
+    /if\(!S\.sel\.size\)return false;/.test(syncFn) &&
+    /for\(const p of\(list\|\|current\(\)\)\)live\.add\(p\.id\);/.test(syncFn) &&
+    /if\(!live\.has\(id\)\)\{S\.sel\.delete\(id\);dropped=true\}/.test(syncFn) &&
+    /if\(S\.selMode\)\{syncSel\(\);selTitle\(\)\}/.test(screenFn) &&
+    /if\(S\.selMode\)\{syncSel\(list\);selTitle\(\)\}/.test(resultsFn) &&
+    /function selTitle\(\)\{[\s\S]*?S\.sel\.size\+' selected'/.test(asset));
 
   await browser.close();
   server.close();
