@@ -468,6 +468,9 @@ function paintSel(el){
 let screenKey=null,resKey=null;
 function swapIn(el,html){
   const f=fragOf(html);
+  // the markup below replaces every tile a gesture is tracking, so an in-flight drag
+  // is torn down first: see resetDrag()
+  resetDrag();
   while(el.firstChild)el.removeChild(el.firstChild);
   el.appendChild(f);
 }
@@ -707,6 +710,15 @@ scr.addEventListener('pointermove',e=>{
   }
 });
 
+/* A re-render throws away every tile node the drag is tracking, so the gesture cannot
+   carry on into the new markup: the node it started on is gone, its cached hit box is
+   stale, the capture still points at the scroller and the pending frame would paint
+   against tiles the drag never measured, while the edge auto-scroll keeps scrolling a
+   grid that no longer holds them. Anything in flight is torn down instead of being
+   left running against nodes that have left the document. */
+function resetDrag(){
+  if(drag||dragPid!=null||autoScroll||lpTimer)endDrag();
+}
 function endDrag(){
   clearTimeout(lpTimer);lpTimer=null;
   clearInterval(autoScroll);autoScroll=null;
