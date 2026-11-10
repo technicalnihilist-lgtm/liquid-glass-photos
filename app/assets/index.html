@@ -472,6 +472,8 @@ function swapIn(el,html){
   el.appendChild(f);
 }
 function renderScreen(keepScroll=true){
+  // the list can change under an open selection; keep the count honest
+  if(S.selMode){syncSel();selTitle()}
   const sc=$('#screen'), y=keepScroll?sc.scrollTop:0;
   sc.classList.toggle('sel',S.selMode);
   let html='',key=null;
@@ -497,6 +499,8 @@ function renderScreen(keepScroll=true){
 }
 function renderResults(){
   const list=current(),el=$('#res'); if(!el)return;
+  // typing or a chip can narrow the results under an open selection
+  if(S.selMode){syncSel(list);selTitle()}
   setPrefetchList(list);
   if(!list.length){swapIn(el,`<div class="empty">${(S.q||S.chip)?'No matches found.':'Search by name, album or date.'}</div>`);resKey=null;return}
   const key=gridKey(list);
@@ -584,6 +588,21 @@ let lpTimer=null,lpFired=false,lpStart=null;
 let drag=null, dragMoved=false, autoScroll=null, dragPid=null;
 const scr=$('#screen');
 
+/* A selection is a set of photo ids, but the list under it can change while the
+   selection is open: a library reload after a delete or a resume drops photos out
+   of the list, and a search query or a chip narrows the results. Ids that have
+   left the current list are dropped here, so the count in the title describes the
+   tiles that are actually selected and on screen instead of counting photos the
+   user can no longer see, and a photo that is still in the list keeps its .on
+   state. Pass the list when the caller already has it. */
+function syncSel(list){
+  if(!S.sel.size)return false;
+  const live=new Set();
+  for(const p of(list||current()))live.add(p.id);
+  let dropped=false;
+  Array.from(S.sel).forEach(id=>{if(!live.has(id)){S.sel.delete(id);dropped=true}});
+  return dropped;
+}
 function selTitle(){
   const ttl=$('.head .ttl');
   if(ttl)ttl.textContent=S.sel.size?S.sel.size+' selected':'Select items';
