@@ -119,7 +119,18 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
   `tools/test_suite.js` gains two checks: one long-presses a real search result, narrows the query until that photo
   drops out of the results and reads the title ("1 selected" -> "Select items", tile unpainted), the other holds the
   shape (the prune against the live list, the two guarded call sites). *(1.4.6)*
-- [ ] 47. Clear the drag state when the screen re-renders.
+- [x] 47. Clear the drag state when the screen re-renders — done: `swapIn()` is the one place the markup is
+  replaced (grid, albums, empty, results), so it now calls a new `resetDrag()` before the old nodes leave the
+  document. An in-flight gesture is torn down there instead of being left running against a grid that no longer
+  holds it: the node the drag started on, its cached hit box, the pointer capture, the pending frame and the edge
+  auto-scroll interval all belong to nodes that are about to be thrown away, and they used to keep hit-testing and
+  auto-scrolling after a re-render. `resetDrag()` only ends the gesture when something is actually in flight (a drag,
+  a capture, an auto-scroll or an armed long press), so a plain repaint that keeps its tiles is untouched, and the
+  `.on`-only path (`paintSel`) still runs the drag through. Tiles, header and gestures are unchanged.
+  `tools/test_suite.js` gains two checks: one starts a real drag across the grid, re-renders under the finger
+  (`S.anim=true; renderAll(true)` — the path a reload or a delete takes) and moves onto a tile the drag never
+  measured, reading that nothing more is painted and the drag/capture/auto-scroll state is cleared; the other holds
+  the shape (the guarded teardown and its call site ahead of the node removal). *(1.4.7)*
 - [ ] 48. Add `touch-action: pan-y` handling so a diagonal drag still scrolls.
 - [ ] 49. Verify pinch-to-change-columns does not fight drag-select.
 - [ ] 50. Make "All" respect the current filter (search/album), verified by a test.
