@@ -13,9 +13,9 @@ A real, installable Android **photos** app — the liquid-glass UI from the orig
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.4.5, 118 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.4.6, 118 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.4.5 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.4.6 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -114,6 +114,23 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.4.6 — day 5 of the 20-day optimisation plan, twenty-eighth pass
+No UI change, no new features. Item 46 of the plan: the selection count stays in sync when the list changes under it.
+- A selection is a set of photo ids, and nothing re-checked that those ids were still in the list on screen. A
+  library reload after a delete or a resume, and a search query or a chip typed under an open selection, left the
+  title counting photos that were no longer there — "4 selected" with one tile painted — and the selection bar
+  acted on those ids too.
+- `syncSel()` now drops the ids that have left the current list (it takes the list when the caller already has it)
+  and `selTitle()` rewrites the title from what is left, so the count always describes the tiles that are actually
+  selected and visible. A selected photo that is still in the list keeps its `.on` state.
+- Both render paths call it before they paint — `renderScreen()` for the grid and the album screens, and
+  `renderResults()` for a query or a chip — so the count is re-derived on every render rather than only when a tile
+  is tapped. Same header, same tiles, same gestures.
+- `tools/test_suite.js` gains two checks that pin it: one long-presses a real search result, narrows the query until
+  that photo drops out of the results, and reads the title ("1 selected" -> "Select items", tile unpainted), the
+  other holds the shape — the prune against the live list and the two guarded call sites.
+- 47 checks in `tools/test_suite.js`, all PASS.
 
 ### 1.4.5 — day 5 of the 20-day optimisation plan, twenty-seventh pass
 No UI change, no new features. Item 45 of the plan: a long press starts the selection on the press, and the release does not select again.
