@@ -646,6 +646,11 @@ function selectAll(){
 }
 
 scr.addEventListener('pointerdown',e=>{
+  /* A touch that is not the first finger down is a pinch finger, not a press: it must not
+     arm a long press or a drag of its own. Otherwise the second finger of a pinch started
+     a press on whatever tile it landed on, and that press outlived the pinch — the timer
+     selected a tile 430 ms later and the drag painted one as the fingers travelled. */
+  if(e.pointerType==='touch'&&!e.isPrimary)return;
   const t=e.target.closest('.tile'); if(!t)return;
   const id=+t.dataset.id;
   lpFired=false; lpStart={x:e.clientX,y:e.clientY}; dragPid=e.pointerId;
@@ -788,7 +793,15 @@ scr.addEventListener('input',e=>{if(e.target.id==='q'){S.q=e.target.value;S.chip
 /* pinch to change grid size (like Google Photos) */
 let pd=0;
 const dist=t=>Math.hypot(t[0].clientX-t[1].clientX,t[0].clientY-t[1].clientY);
-scr.addEventListener('touchstart',e=>{pd=e.touches.length===2?dist(e.touches):0},{passive:true});
+scr.addEventListener('touchstart',e=>{
+  /* A second finger on the grid is a pinch, and the pinch re-flows the grid under both
+     fingers, so the tile the first finger pressed is no longer the tile beneath it. The
+     press that finger armed is ended here, before the pinch has moved anything and before
+     the ratio below changes the column count: otherwise the drag kept painting tiles the
+     re-flow had already moved out from under it, and its long press fired mid-pinch. */
+  if(e.touches.length>1)endDrag();
+  pd=e.touches.length===2?dist(e.touches):0;
+},{passive:true});
 scr.addEventListener('touchmove',e=>{
   if(e.touches.length!==2||!pd)return; e.preventDefault();
   const r=dist(e.touches)/pd;
