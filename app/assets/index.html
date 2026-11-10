@@ -674,10 +674,19 @@ scr.addEventListener('pointerdown',e=>{
 scr.addEventListener('pointermove',e=>{
   if(lpTimer&&lpStart&&Math.hypot(e.clientX-lpStart.x,e.clientY-lpStart.y)>9){clearTimeout(lpTimer);lpTimer=null}
   if(!drag)return;
-  if(Math.hypot(e.clientX-drag.x,e.clientY-drag.y)>6)dragMoved=true;
+  const dx=e.clientX-drag.x, dy=e.clientY-drag.y;
+  if(Math.hypot(dx,dy)>6)dragMoved=true;
   if(!dragMoved)return;
   // the press has become a drag, so it can no longer turn into a long press
   if(lpTimer){clearTimeout(lpTimer);lpTimer=null}
+  /* `touch-action: pan-y` on #screen gives the browser every vertical pan and keeps only
+     the sideways ones, so a diagonal drag on a touch screen is a scroll, not a selection.
+     A finger therefore only becomes a drag once it has gone further sideways than it has
+     up or down — the one direction pan-y denies the browser — and until then nothing is
+     prevented, nothing is captured and no tile is painted, so the scroll that gesture
+     belongs to can still start and the finger is free to travel diagonally. A mouse or a
+     pen has no pan to hand back, so it drags in any direction as it always has. */
+  if(e.pointerType==='touch'&&Math.abs(dx)<=Math.abs(dy))return;
   if(e.cancelable)e.preventDefault();
   if(!drag.applied){
     // first frame past the threshold: this is where the drag actually starts, so the

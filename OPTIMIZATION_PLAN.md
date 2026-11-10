@@ -131,7 +131,21 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
   (`S.anim=true; renderAll(true)` — the path a reload or a delete takes) and moves onto a tile the drag never
   measured, reading that nothing more is painted and the drag/capture/auto-scroll state is cleared; the other holds
   the shape (the guarded teardown and its call site ahead of the node removal). *(1.4.7)*
-- [ ] 48. Add `touch-action: pan-y` handling so a diagonal drag still scrolls.
+- [x] 48. Add `touch-action: pan-y` handling so a diagonal drag still scrolls. — done: `#screen` declares
+  `touch-action: pan-y`, which gives the browser every vertical pan and leaves only sideways gestures to the app, but
+  the drag ignored it: the 6 px threshold was measured with `Math.hypot` in any direction, and the first frame past
+  it called `preventDefault()` and took the pointer capture. A finger that set off diagonally was therefore claimed
+  on the spot, the scroll it belonged to never started, and the grid froze while tiles painted under it. The gesture
+  now has to be further sideways than it is up or down before the drag claims it — the one direction pan-y denies
+  the browser — so a diagonal move prevents nothing, captures nothing and paints nothing, and the pan is free to
+  start; a sideways drag takes the pointer exactly as before (capture, `preventDefault`, the tile painted once), and
+  a mouse or a pen, which has no pan to hand back, still drags in any direction. Tiles, header and gestures are
+  unchanged. `tools/test_suite.js` gains two checks: one drives a real touch pointer through a 7 px across / 9 px
+  down move and then a 30 px sideways one, reading that the diagonal move prevents nothing, paints nothing and
+  leaves `drag.applied` false while the sideways move prevents, paints one tile and applies; the other holds the
+  shape (the sideways guard ahead of the `preventDefault` and the capture, pan-y still on `#screen`). The suite also
+  settles 800 ms before clicking the search tab, whose 750 ms `popIn` scale used to move the button out from under
+  the click. *(1.4.8)*
 - [ ] 49. Verify pinch-to-change-columns does not fight drag-select.
 - [ ] 50. Make "All" respect the current filter (search/album), verified by a test.
 

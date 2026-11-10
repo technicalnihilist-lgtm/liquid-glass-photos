@@ -115,6 +115,25 @@ The APK ships with **no** sample media — it is empty until it reads your galle
 
 ## Changelog
 
+### 1.4.8 — day 5 of the 20-day optimisation plan, thirtieth pass
+No UI change, no new features. Item 48 of the plan: `touch-action: pan-y` is honoured, so a diagonal drag still scrolls.
+- `#screen` declares `touch-action: pan-y`, so the browser owns every vertical pan and only a sideways gesture is
+  the app's. The drag ignored that: the 6 px threshold was measured in any direction and the first frame past it
+  called `preventDefault()` and took the pointer capture, so a finger that set off diagonally was claimed on the
+  spot and the scroll it belonged to never started — the grid froze and tiles painted instead.
+- The touch gesture now has to be further sideways than it is up or down before the drag claims it — the one
+  direction pan-y denies the browser. Until then nothing is prevented, nothing is captured and no tile is painted,
+  so the pan is free to start and the finger can travel diagonally; once the gesture is sideways the drag takes it
+  as before. A mouse or a pen has no pan to hand back, so it drags in any direction exactly as it did.
+- Same tiles, same header, same gestures, same selection behaviour on a sideways drag.
+- `tools/test_suite.js` gains two checks that pin it: one drives a real touch pointer through a diagonal move (7 px
+  across, 9 px down — past the threshold) and then a sideways one, reading that the diagonal move prevents nothing,
+  paints nothing and leaves the drag unapplied while the sideways move prevents, paints and applies; the other
+  holds the shape — the sideways guard ahead of the `preventDefault` and the capture, with pan-y still on `#screen`.
+  The suite also waits out the 750 ms `popIn` on the tabs before clicking the search button, which used to race the
+  animation and click the grid behind it.
+- 51 checks in `tools/test_suite.js`, all PASS.
+
 ### 1.4.7 — day 5 of the 20-day optimisation plan, twenty-ninth pass
 No UI change, no new features. Item 47 of the plan: a re-render clears the drag state instead of leaving it in flight.
 - A drag remembers the tile node it started on, that tile's cached hit box, the pointer capture, a pending animation

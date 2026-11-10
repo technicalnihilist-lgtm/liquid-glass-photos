@@ -265,6 +265,9 @@ function check(name, ok, detail) {
          selects one search result, then the query is narrowed until that photo drops out of
          the results — the count must fall back to the empty-selection text on its own. */
   const ttlText = () => page.$eval('.head .ttl', (t) => t.textContent.trim());
+  // the tabs re-enter with a 750 ms popIn scale animation, so a click measured mid-flight
+  // lands nowhere near the button: let the render settle before clicking it
+  await settle(800);
   await page.click('.tabs .round');
   await page.waitForSelector('#q', { timeout: 10000 });
   await page.type('#q', 'Camera');
@@ -334,6 +337,55 @@ function check(name, ok, detail) {
   check('a re-render ends the drag instead of leaving it in flight (painted ' + dragPainted +
     ', kept ' + afterRenderOn + ' -> ' + afterMoveOn + ', state cleared ' + dragGone + ')',
     dragPainted >= 1 && afterMoveOn === afterRenderOn && dragGone === true);
+
+  /* 7f. (48) A diagonal drag on a touch screen still scrolls. #screen declares
+         `touch-action: pan-y`, so the browser owns every vertical pan and only the sideways
+         gesture belongs to the app; a finger that crossed the 6 px threshold diagonally
+         used to be claimed on the spot — preventDefault and a pointer capture — and the
+         scroll it belonged to never started. The same pointerdown is followed here by a
+         diagonal move and then a sideways one: the diagonal move must leave the drag
+         unclaimed (nothing prevented, nothing painted), the sideways one must claim it. */
+  await page.click('[data-act="startsel"]');
+  await page.waitForSelector('#selbar:not(.hide)', { timeout: 10000 });
+  await settle(800);
+  const touchRun = await page.evaluate(() => {
+    const tile = document.querySelector('.tile');
+    const b = tile.getBoundingClientRect();
+    const x = b.left + b.width / 2, y = b.top + b.height / 2;
+    const scrEl = document.querySelector('#screen');
+    const painted = () => document.querySelectorAll('.tile.on').length;
+    const fire = (type, cx, cy) => {
+      const ev = new PointerEvent(type, {
+        bubbles: true, cancelable: true, pointerId: 7, pointerType: 'touch',
+        isPrimary: true, clientX: cx, clientY: cy, buttons: 1,
+      });
+      (type === 'pointerdown' ? tile : scrEl).dispatchEvent(ev);
+      return ev.defaultPrevented;
+    };
+    const out = {};
+    fire('pointerdown', x, y);
+    out.onDown = painted();
+    // 7 px sideways, 9 px down: past the 6 px threshold, but the gesture is the scroller's
+    out.diagPrevented = fire('pointermove', x + 7, y + 9);
+    out.onDiag = painted();
+    out.appliedAfterDiag = !!(drag && drag.applied);
+    // 30 px sideways, 4 px down: the one direction pan-y leaves to the app
+    out.sidePrevented = fire('pointermove', x + 30, y + 13);
+    out.onSide = painted();
+    out.appliedAfterSide = !!(drag && drag.applied);
+    fire('pointerup', x + 30, y + 13);
+    return out;
+  });
+  await settle(200);
+  await page.click('[data-act="endsel"]');
+  await page.waitForFunction(() => document.querySelectorAll('.tile.on').length === 0, { timeout: 10000 });
+  check('a diagonal touch drag is left to the scroller, a sideways one becomes the drag (' +
+    'down ' + touchRun.onDown + ', diagonal prevented ' + touchRun.diagPrevented + ' painted ' +
+    touchRun.onDiag + ' applied ' + touchRun.appliedAfterDiag + ', sideways prevented ' +
+    touchRun.sidePrevented + ' painted ' + touchRun.onSide + ' applied ' + touchRun.appliedAfterSide + ')',
+    touchRun.onDown === 0 &&
+    touchRun.diagPrevented === false && touchRun.onDiag === 0 && touchRun.appliedAfterDiag === false &&
+    touchRun.sidePrevented === true && touchRun.onSide === 1 && touchRun.appliedAfterSide === true);
 
   /* 8. tapping a tile opens the viewer, close returns to the grid */
   await page.click('.tile');
@@ -1020,6 +1072,19 @@ function check(name, ok, detail) {
     swapFn.indexOf('resetDrag();') > swapFn.indexOf('const f=fragOf(html);') &&
     swapFn.indexOf('resetDrag();') < swapFn.indexOf('while(el.firstChild)') &&
     /function endDrag\(\)\{[\s\S]*?drag=null;/.test(asset));
+
+  /* 48. #screen keeps `touch-action: pan-y`, and the drag honours it: the sideways test and
+         the threshold sit ahead of the preventDefault and the capture, so a diagonal finger
+         is never claimed and its scroll can start. */
+  const moveFn48 = (asset.match(/scr\.addEventListener\('pointermove',e=>\{([\s\S]*?)\n\}\);/ ) || ['', ''])[1];
+  const panGuardAt = moveFn48.indexOf("if(e.pointerType==='touch'&&Math.abs(dx)<=Math.abs(dy))return;");
+  check('a diagonal touch drag is left to the scroller (touch-action: pan-y)',
+    /#screen\{[^}]*touch-action:pan-y/.test(asset) &&
+    /const dx=e\.clientX-drag\.x, dy=e\.clientY-drag\.y;/.test(moveFn48) &&
+    panGuardAt > moveFn48.indexOf('if(!dragMoved)return;') &&
+    panGuardAt > -1 &&
+    panGuardAt < moveFn48.indexOf('e.preventDefault()') &&
+    panGuardAt < moveFn48.indexOf('drag.applied=true'));
 
   await browser.close();
   server.close();
