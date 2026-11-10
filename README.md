@@ -115,6 +115,21 @@ The APK ships with **no** sample media — it is empty until it reads your galle
 
 ## Changelog
 
+### 1.5.0 — day 6 of the 20-day optimisation plan, thirty-second pass
+No UI change, no new features. Item 50 of the plan: "All" is verified against the current filter.
+- The header's **All** button and the swipe-to-the-right-edge select-all both take the list the screen is showing —
+  `current()` — not the library behind it, so a search result set or an album is selected exactly and no photo
+  outside the filter is ever picked up. That is already how it read; what was missing was anything that said so.
+- The one select-all check in the suite ran against the unfiltered library, where the filtered list and the whole
+  library are the same list, so a regression to the whole library would have passed it. The behaviour is unchanged —
+  same tiles, same header, same gestures, same count and toast — and this pass ships the verification.
+- `tools/test_suite.js` gains three checks: one long-presses a search result and presses All, reading that the
+  selection is exactly the result ids (none outside the filter) and that every one of their tiles is painted; one
+  does the same inside the Camera album, a strict subset of the grid, so a select-all that reached for the library
+  would overrun it; the third holds the shape — one `selectAll()` helper reading `const list=current();` and never
+  `P`, with both entry points, the header button and the right-edge swipe, routed through it.
+- 56 checks in `tools/test_suite.js`, all PASS.
+
 ### 1.4.9 — day 5 of the 20-day optimisation plan, thirty-first pass
 No UI change, no new features. Item 49 of the plan: pinch-to-change-columns no longer fights drag-select.
 - A pinch is two fingers on the grid, and both of them landed on the same handler that arms a press. The second

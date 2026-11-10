@@ -163,7 +163,17 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
   when the pinch starts, that the columns still drop by one, that nothing is painted during or after the pinch and
   that no press fires late; the other holds the shape (the non-primary guard ahead of `lpTimer=setTimeout`, and
   `endDrag()` ahead of the distance read in the `touchstart` listener). *(1.4.9)*
-- [ ] 50. Make "All" respect the current filter (search/album), verified by a test.
+- [x] 50. Make "All" respect the current filter (search/album), verified by a test — done: the header button and
+  the swipe-to-the-right-edge select-all already take the list the screen is showing (`current()`), not the library
+  `P`, so a narrowed view is selected exactly and no photo outside it is ever picked up. What was missing was the
+  test: the one select-all check ran against the unfiltered grid, where the filtered list and the whole library are
+  the same list, so a regression to the whole library would have passed it. The behaviour is unchanged — same tiles,
+  same header, same gestures, same count and toast, no new feature — and it is now pinned. `tools/test_suite.js`
+  gains three checks: one long-presses a search result and presses All, reading that the selection is exactly the
+  result ids (none outside the filter) and that every one of their tiles is painted; one does the same inside the
+  Camera album, a strict subset of the grid, so a select-all that reached for the library would overrun it; the third
+  holds the shape — one `selectAll()` helper reading `const list=current();` and never `P`, with both entry points,
+  the header button and the right-edge swipe, routed through it. *(1.5.0)*
 
 ## Day 6 — viewer
 

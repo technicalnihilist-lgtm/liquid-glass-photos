@@ -306,6 +306,73 @@ function check(name, ok, detail) {
     countBefore + ' / ' + countAfter + ', on ' + onBefore + ' -> ' + onAfter + ')',
     countBefore === '1 selected' && countAfter === 'Select items' && onBefore === 1 && onAfter === 0);
 
+  /* 7d2. (50) "All" selects the current filter, not the library behind it. The header button
+         was only ever pinned against the unfiltered grid, so nothing said what it should do
+         when a query or an album has narrowed the list: here it is pressed with the search
+         results on screen and the ids it collects are compared with the tiles that filter
+         actually painted — the selection may hold no photo outside them and must paint every
+         one of them. */
+  await settle(800);                       // the tabs re-enter with a 750 ms popIn scale
+  await page.click('.tabs .round');
+  await page.waitForSelector('#q', { timeout: 10000 });
+  await page.type('#q', 'Camera');
+  await page.waitForFunction(() => document.querySelectorAll('#res .tile').length > 0, { timeout: 10000 });
+  await settle(250);
+  const resIds = await page.$$eval('#res .tile', (n) => n.map((t) => +t.dataset.id));
+  const q0 = await page.$eval('#res .tile', (t) => {
+    const b = t.getBoundingClientRect();
+    return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+  });
+  await hold(q0, 650);                     // long press a result: selection mode over the results
+  await release();
+  await page.click('[data-act="selall"]');
+  await settle(300);
+  const qSel = await page.evaluate(() => [...S.sel]);
+  const qOn = await page.$$eval('#res .tile.on', (n) => n.length);
+  const qOut = qSel.filter((id) => resIds.indexOf(id) < 0).length;
+  await page.click('[data-act="endsel"]');
+  await page.waitForFunction(() => document.querySelectorAll('.tile.on').length === 0, { timeout: 10000 });
+  check('All in the search tab selects exactly the ' + resIds.length + ' filtered results (' +
+    qSel.length + ' picked, ' + qOn + ' painted, ' + qOut + ' outside the filter)',
+    resIds.length > 0 && resIds.length < COUNT && qSel.length === resIds.length &&
+    qOn === resIds.length && qOut === 0);
+
+  /* 7d3. (50) and inside an album it takes the album, not the library: the Camera album is a
+         strict subset of the grid, so a select-all that reached for the whole library would
+         overrun it by every other photo. */
+  await page.click('#pill button[data-tab="albums"]');
+  await settle(700);
+  await page.evaluate(() => document.querySelector('.album[data-album="camera"]').click());
+  await page.waitForFunction(() => document.querySelectorAll('.tile').length > 0, { timeout: 10000 });
+  await settle(300);
+  const albIds = await page.$$eval('.tile', (n) => n.map((t) => +t.dataset.id));
+  await page.click('[data-act="startsel"]');
+  await page.waitForSelector('#selbar:not(.hide)', { timeout: 10000 });
+  await page.click('[data-act="selall"]');
+  await settle(300);
+  const aSel = await page.evaluate(() => [...S.sel]);
+  const aOn = await page.$$eval('.tile.on', (n) => n.length);
+  const aOut = aSel.filter((id) => albIds.indexOf(id) < 0).length;
+  await page.click('[data-act="endsel"]');
+  await page.click('#pill button[data-tab="library"]');
+  await page.waitForFunction((n) => document.querySelectorAll('.tile').length === n, { timeout: 10000 }, COUNT);
+  await settle(250);
+  check('All inside an album selects exactly the ' + albIds.length + ' album photos (' +
+    aSel.length + ' picked, ' + aOn + ' painted, ' + aOut + ' outside the album)',
+    albIds.length > 0 && albIds.length < COUNT && aSel.length === albIds.length &&
+    aOn === albIds.length && aOut === 0);
+
+  /* 7d4. (50) the shape that keeps it so: one select-all helper reading the same `current()`
+         list every render paints from — never the library `P` — and both entry points, the
+         header button and the swipe to the right edge, going through it. */
+  const selSrc = fs.readFileSync(APP, 'utf8');
+  const selBody = (selSrc.match(/function selectAll\(\)\{[\s\S]*?\n\}/) || [''])[0];
+  const edgeAll = /if\(drag\.state&&e\.clientX>innerWidth\*\.94\)\{\s*\n\s*const list=current\(\);/.test(selSrc);
+  const btnAll = /else if\(a==='selall'\)\{selectAll\(\)\}/.test(selSrc);
+  check('select-all reads the filtered list (current()) at both entry points',
+    /const list=current\(\);/.test(selBody) && selBody.indexOf('P.') < 0 && selBody.indexOf('P[') < 0 &&
+    edgeAll && btnAll);
+
   /* 7e. (47) A re-render that replaces the tiles ends the drag instead of leaving it in
          flight. The drag remembers the node it started on, its hit box, the pointer
          capture and a pending frame; when the screen paints a fresh grid those nodes are
