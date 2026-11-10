@@ -387,6 +387,91 @@ function check(name, ok, detail) {
     touchRun.diagPrevented === false && touchRun.onDiag === 0 && touchRun.appliedAfterDiag === false &&
     touchRun.sidePrevented === true && touchRun.onSide === 1 && touchRun.appliedAfterSide === true);
 
+  /* 7g. (49) A second finger is a pinch, not a selection. The pinch changes the column count
+         under the grid, so the finger that went down first is no longer over the tile it
+         pressed; the drag and the long press it armed used to survive the pinch and paint a
+         tile the grid had already moved out from under them — and the second finger armed a
+         press of its own on the way down. A real two-finger pinch is driven here: the drag and
+         the long-press timer must be gone before the pinch moves anything, the pinch must still
+         change the columns, and the sideways travel of either finger must paint nothing. */
+  await page.click('[data-act="startsel"]');
+  await page.waitForSelector('#selbar:not(.hide)', { timeout: 10000 });
+  await settle(800);
+  const pinchRun = await page.evaluate(() => {
+    const tiles = document.querySelectorAll('.tile');
+    const a = tiles[0], b = tiles[1];
+    const ab = a.getBoundingClientRect(), bb = b.getBoundingClientRect();
+    const ax = ab.left + ab.width / 2, ay = ab.top + ab.height / 2;
+    const bx = bb.left + bb.width / 2, by = bb.top + bb.height / 2;
+    const d0 = Math.hypot(bx - ax, by - ay) || 1;
+    const ux = (bx - ax) / d0, uy = (by - ay) / d0;
+    const s = d0 * 0.25; // each finger out by s -> the fingers are 1.5x apart
+    const scrEl = document.querySelector('#screen');
+    const painted = () => document.querySelectorAll('.tile.on').length;
+    const ptr = (type, id, cx, cy) => {
+      const ev = new PointerEvent(type, {
+        bubbles: true, cancelable: true, pointerId: id, pointerType: 'touch',
+        isPrimary: id === 7, clientX: cx, clientY: cy, buttons: 1,
+      });
+      const target = type === 'pointerdown' ? (document.elementFromPoint(cx, cy) || scrEl) : scrEl;
+      target.dispatchEvent(ev);
+      return ev.defaultPrevented;
+    };
+    const touch = (type, pts) => {
+      const list = pts.map(([id, cx, cy]) => new Touch({ identifier: id, target: scrEl, clientX: cx, clientY: cy }));
+      const ev = new TouchEvent(type, {
+        bubbles: true, cancelable: true, touches: list, targetTouches: list, changedTouches: list,
+      });
+      scrEl.dispatchEvent(ev);
+      return ev.defaultPrevented;
+    };
+    const out = { cols0: ST.cols };
+    ptr('pointerdown', 7, ax, ay);                    // finger 1 on a tile
+    out.armed = !!(drag && lpTimer);                  // press armed, as on a real finger
+    ptr('pointerdown', 8, bx, by);                    // finger 2 lands: a pinch begins
+    out.secondTookOver = !!(drag && drag.x === bx && drag.y === by) || dragPid === 8;
+    touch('touchstart', [[7, ax, ay], [8, bx, by]]);
+    out.dragAtPinch = !!drag;
+    out.timerAtPinch = !!lpTimer;
+    out.pinchPrevented = touch('touchmove', [[7, ax - ux * s, ay - uy * s], [8, bx + ux * s, by + uy * s]]);
+    out.colsAfter = ST.cols;
+    out.paintedDuringPinch = painted();
+    // the fingers travel sideways while they pinch: nothing may be painted
+    out.movePrevented = ptr('pointermove', 7, ax - ux * s - 40, ay - uy * s);
+    out.paintedAfterMove = painted();
+    ptr('pointerup', 7, ax - ux * s - 40, ay - uy * s);
+    ptr('pointerup', 8, bx + ux * s + 40, by + uy * s);
+    touch('touchend', []);
+    out.dragAfter = !!drag;
+    out.timerAfter = !!lpTimer;
+    return out;
+  });
+  // a press armed by the pinch must not fire once the fingers have gone
+  await settle(600);
+  const pinchLate = await page.evaluate(() => ({
+    painted: document.querySelectorAll('.tile.on').length,
+    drag: !!drag,
+    timer: !!lpTimer,
+  }));
+  await page.click('[data-act="endsel"]');
+  await page.waitForFunction(() => document.querySelectorAll('.tile.on').length === 0, { timeout: 10000 });
+  await page.evaluate(() => { ST.cols = 3; applySettings(); });
+  check('a pinch changes the columns without painting a selection (' +
+    'armed ' + pinchRun.armed + ', second finger took over ' + pinchRun.secondTookOver +
+    ', drag at pinch ' + pinchRun.dragAtPinch + ', timer at pinch ' + pinchRun.timerAtPinch +
+    ', cols ' + pinchRun.cols0 + ' -> ' + pinchRun.colsAfter +
+    ', painted ' + pinchRun.paintedDuringPinch + ' -> ' + pinchRun.paintedAfterMove +
+    ', late paint ' + pinchLate.painted + ')',
+    pinchRun.armed === true &&
+    pinchRun.secondTookOver === false &&
+    pinchRun.dragAtPinch === false && pinchRun.timerAtPinch === false &&
+    pinchRun.pinchPrevented === true &&
+    pinchRun.colsAfter === pinchRun.cols0 - 1 &&
+    pinchRun.paintedDuringPinch === 0 && pinchRun.paintedAfterMove === 0 &&
+    pinchRun.movePrevented === false &&
+    pinchRun.dragAfter === false && pinchRun.timerAfter === false &&
+    pinchLate.painted === 0 && pinchLate.drag === false && pinchLate.timer === false);
+
   /* 8. tapping a tile opens the viewer, close returns to the grid */
   await page.click('.tile');
   await page.waitForSelector('.viewer .stage img', { timeout: 10000 });
@@ -1085,6 +1170,20 @@ function check(name, ok, detail) {
     panGuardAt > -1 &&
     panGuardAt < moveFn48.indexOf('e.preventDefault()') &&
     panGuardAt < moveFn48.indexOf('drag.applied=true'));
+
+  /* 49. The shape that makes the pinch safe: the second finger arms no press at all (a
+         non-primary touch pointer returns before the long-press timer and the drag), and the
+         two-finger touchstart ends whatever the first finger had in flight before it reads
+         the finger distance for the zoom ratio. */
+  const tsFn = (asset.match(/scr\.addEventListener\('touchstart',e=>\{([\s\S]*?)\n\},\{passive:true\}\);/) || ['', ''])[1];
+  const pdFn = (asset.match(/scr\.addEventListener\('pointerdown',e=>\{([\s\S]*?)\n\}\);/) || ['', ''])[1];
+  check('a second finger is a pinch, not a selection (touchstart tears the drag down first)',
+    /if\(e\.pointerType==='touch'&&!e\.isPrimary\)return;/.test(pdFn) &&
+    pdFn.indexOf("!e.isPrimary") < pdFn.indexOf('lpTimer=setTimeout') &&
+    /if\(e\.touches\.length>1\)endDrag\(\);/.test(tsFn) &&
+    tsFn.indexOf('endDrag()') > -1 &&
+    tsFn.indexOf('endDrag()') < tsFn.indexOf('pd=e.touches.length===2?dist(e.touches):0;') &&
+    /touch-action:pan-y/.test(asset));
 
   await browser.close();
   server.close();
