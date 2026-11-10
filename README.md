@@ -13,9 +13,9 @@ A real, installable Android **photos** app — the liquid-glass UI from the orig
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.4.7, 118 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.4.9, 118 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.4.7 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.4.9 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -114,6 +114,27 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.4.9 — day 5 of the 20-day optimisation plan, thirty-first pass
+No UI change, no new features. Item 49 of the plan: pinch-to-change-columns no longer fights drag-select.
+- A pinch is two fingers on the grid, and both of them landed on the same handler that arms a press. The second
+  finger armed a long press and a drag of its own on whatever tile it touched, overwriting the first finger's, and
+  neither was torn down when the pinch started — so 430 ms into a pinch a tile was selected, and as the fingers
+  travelled one of them claimed the pointer and painted tiles while the columns changed under them.
+- A touch that is not the first finger down now returns before the long-press timer and the drag are armed, so a
+  pinch finger is never a press; and a two-finger `touchstart` ends whatever the first finger had in flight — drag,
+  pointer capture, edge auto-scroll and long-press timer — before it reads the finger distance, so nothing survives
+  the re-flow the pinch is about to cause. The pinch itself is unchanged: same 1.3 / 0.77 ratio, same 1–6 columns,
+  same plop and buzz.
+- Same tiles, same header, same gestures: a one-finger drag-select still paints as it travels and a long press still
+  starts the selection at 430 ms.
+- `tools/test_suite.js` gains two checks that pin it: one drives a real two-finger pinch over the grid in selection
+  mode — finger one presses a tile, finger two lands, the fingers spread to 1.5x and then travel sideways — and reads
+  that the second finger never takes the press over, that the drag and the timer are gone by the time the pinch
+  moves, that the columns still drop by one, that nothing is painted during or after the pinch and that no press
+  fires late; the other holds the shape — the non-primary guard ahead of the long-press timer, and `endDrag()` ahead
+  of the distance read in `touchstart`.
+- 53 checks in `tools/test_suite.js`, all PASS.
 
 ### 1.4.8 — day 5 of the 20-day optimisation plan, thirtieth pass
 No UI change, no new features. Item 48 of the plan: `touch-action: pan-y` is honoured, so a diagonal drag still scrolls.
