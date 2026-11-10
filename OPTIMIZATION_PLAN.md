@@ -107,7 +107,18 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
   reads the grid while it is still down (selection mode entered, tile painted, nothing more on release, and the
   same for a deselect), the other holds the shape — one arming site ahead of the mode branch, `toggleSel(id)` in
   the timer, the `lpFired` guard in the click, and the timer dropped past the drag threshold. *(1.4.5)*
-- [ ] 46. Keep the selection count text in sync when the list changes under it.
+- [x] 46. Keep the selection count text in sync when the list changes under it — done: a selection is a set of photo
+  ids, and nothing re-checked that those ids were still in the list on screen. A library reload after a delete or a
+  resume, and a search query or a chip typed under an open selection, left the title counting photos that were no
+  longer there ("4 selected" with one tile painted) and left the selection bar acting on those ids. `syncSel()` now
+  drops the ids that have left the current list — it takes the list when the caller already has it — and `selTitle()`
+  rewrites the title from what is left, so the count describes only the tiles that are actually selected and visible;
+  a selected photo still in the list keeps its `.on` state. Both render paths call it before they paint:
+  `renderScreen()` (grid, album, empty) and `renderResults()` (a query or a chip), so the count is re-derived on every
+  render instead of only when a tile is tapped. Header, tiles and gestures are untouched.
+  `tools/test_suite.js` gains two checks: one long-presses a real search result, narrows the query until that photo
+  drops out of the results and reads the title ("1 selected" -> "Select items", tile unpainted), the other holds the
+  shape (the prune against the live list, the two guarded call sites). *(1.4.6)*
 - [ ] 47. Clear the drag state when the screen re-renders.
 - [ ] 48. Add `touch-action: pan-y` handling so a diagonal drag still scrolls.
 - [ ] 49. Verify pinch-to-change-columns does not fight drag-select.
