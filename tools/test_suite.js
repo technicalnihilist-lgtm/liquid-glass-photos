@@ -303,6 +303,38 @@ function check(name, ok, detail) {
     countBefore + ' / ' + countAfter + ', on ' + onBefore + ' -> ' + onAfter + ')',
     countBefore === '1 selected' && countAfter === 'Select items' && onBefore === 1 && onAfter === 0);
 
+  /* 7e. (47) A re-render that replaces the tiles ends the drag instead of leaving it in
+         flight. The drag remembers the node it started on, its hit box, the pointer
+         capture and a pending frame; when the screen paints a fresh grid those nodes are
+         gone, and the gesture used to keep hit-testing and auto-scrolling against a grid
+         it never measured. Here a drag is started across the grid, the screen re-renders
+         under the finger (the same path a library reload or a delete takes: S.anim set,
+         renderAll, fresh nodes), and the pointer then moves onto a tile the drag never
+         measured — nothing more may be painted. */
+  await page.click('[data-act="startsel"]');
+  await page.waitForSelector('#selbar:not(.hide)', { timeout: 10000 });
+  const g0 = await centerOf(0);
+  await page.mouse.move(g0.x, g0.y);
+  await page.mouse.down();
+  await page.mouse.move(g0.x, g0.y + 40, { steps: 4 });
+  await settle(150);
+  const dragPainted = await onCount();
+  await page.evaluate(() => { S.anim = true; renderAll(true); });
+  await settle(200);
+  const afterRenderOn = await onCount();
+  const g1 = await centerOf(6);
+  await page.mouse.move(g1.x, g1.y, { steps: 4 });
+  await settle(250);
+  const afterMoveOn = await onCount();
+  const dragGone = await page.evaluate(() => drag === null && autoScroll === null && dragPid === null);
+  await page.mouse.up();
+  await settle(250);
+  await page.click('[data-act="endsel"]');
+  await page.waitForFunction(() => document.querySelectorAll('.tile.on').length === 0, { timeout: 10000 });
+  check('a re-render ends the drag instead of leaving it in flight (painted ' + dragPainted +
+    ', kept ' + afterRenderOn + ' -> ' + afterMoveOn + ', state cleared ' + dragGone + ')',
+    dragPainted >= 1 && afterMoveOn === afterRenderOn && dragGone === true);
+
   /* 8. tapping a tile opens the viewer, close returns to the grid */
   await page.click('.tile');
   await page.waitForSelector('.viewer .stage img', { timeout: 10000 });
@@ -973,6 +1005,21 @@ function check(name, ok, detail) {
     /if\(S\.selMode\)\{syncSel\(\);selTitle\(\)\}/.test(screenFn) &&
     /if\(S\.selMode\)\{syncSel\(list\);selTitle\(\)\}/.test(resultsFn) &&
     /function selTitle\(\)\{[\s\S]*?S\.sel\.size\+' selected'/.test(asset));
+
+  /* 47. A render that swaps the tiles tears the gesture down first. swapIn() is the one
+         place the markup is replaced (grid, albums, empty, results), so resetDrag() runs
+         there before the old nodes leave the document: with a drag, a capture, an
+         auto-scroll interval or a long-press timer still live it ends the gesture, and
+         with nothing in flight it does nothing at all. */
+  const swapFn = (asset.match(/function swapIn\(el,html\)\{([\s\S]*?)\n\}/) || ['', ''])[1];
+  const resetFn = (asset.match(/function resetDrag\(\)\{([\s\S]*?)\n\}/) || ['', ''])[1];
+  check('a re-render tears the drag down before the old tiles leave the document',
+    /function resetDrag\(\)\{/.test(asset) &&
+    /if\(drag\|\|dragPid!=null\|\|autoScroll\|\|lpTimer\)endDrag\(\);/.test(resetFn) &&
+    /resetDrag\(\);/.test(swapFn) &&
+    swapFn.indexOf('resetDrag();') > swapFn.indexOf('const f=fragOf(html);') &&
+    swapFn.indexOf('resetDrag();') < swapFn.indexOf('while(el.firstChild)') &&
+    /function endDrag\(\)\{[\s\S]*?drag=null;/.test(asset));
 
   await browser.close();
   server.close();
