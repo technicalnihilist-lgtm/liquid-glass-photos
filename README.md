@@ -13,9 +13,9 @@ A real, installable Android **photos** app — the liquid-glass UI from the orig
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.4.6, 118 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.4.7, 118 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.4.6 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.4.7 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -114,6 +114,23 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.4.7 — day 5 of the 20-day optimisation plan, twenty-ninth pass
+No UI change, no new features. Item 47 of the plan: a re-render clears the drag state instead of leaving it in flight.
+- A drag remembers the tile node it started on, that tile's cached hit box, the pointer capture, a pending animation
+  frame and the edge auto-scroll interval. When the screen painted a fresh grid — a library reload, a delete, a
+  changed query — every one of those belonged to nodes that had just left the document, and the gesture kept
+  hit-testing and auto-scrolling against a grid it never measured.
+- `swapIn()` is the one place the markup is replaced (grid, albums, empty state, search results), so it now calls a
+  new `resetDrag()` before the old nodes are removed. `resetDrag()` ends the gesture only when something is actually
+  in flight — a drag, a capture, an auto-scroll or an armed long press — so a repaint that keeps its tiles, and the
+  `.on`-only `paintSel` path, are untouched and a drag still runs through them.
+- Same tiles, same header, same gestures.
+- `tools/test_suite.js` gains two checks that pin it: one starts a real drag across the grid, re-renders under the
+  finger (the path a reload or a delete takes) and moves onto a tile the drag never measured, reading that nothing
+  more is painted and the drag, capture and auto-scroll state are cleared; the other holds the shape — the guarded
+  teardown and its call site ahead of the node removal.
+- 49 checks in `tools/test_suite.js`, all PASS.
 
 ### 1.4.6 — day 5 of the 20-day optimisation plan, twenty-eighth pass
 No UI change, no new features. Item 46 of the plan: the selection count stays in sync when the list changes under it.
