@@ -146,7 +146,23 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
   shape (the sideways guard ahead of the `preventDefault` and the capture, pan-y still on `#screen`). The suite also
   settles 800 ms before clicking the search tab, whose 750 ms `popIn` scale used to move the button out from under
   the click. *(1.4.8)*
-- [ ] 49. Verify pinch-to-change-columns does not fight drag-select.
+- [x] 49. Verify pinch-to-change-columns does not fight drag-select. — done: the two fingers of a pinch landed on
+  the same `pointerdown` that arms a press, so the second finger took the press over from the first — a fresh long
+  press on the tile it touched and a fresh drag with it — and the two-finger `touchstart` only recorded the finger
+  distance, it did not end anything. 430 ms into a pinch a tile was therefore selected, and as the fingers travelled
+  one of them passed the 6 px threshold sideways, claimed the pointer and painted tiles while `--cols` re-flowed the
+  grid under them, against tiles the drag had never measured. A touch that is not the first finger down now returns
+  before the timer and the drag are armed, so a pinch finger is never a press; and `touchstart` with more than one
+  finger calls `endDrag()` before it reads the distance, which drops the drag, the pending frame, the pointer
+  capture, the edge auto-scroll interval and the long-press timer of the finger that is still down, so nothing
+  outlives the re-flow the pinch causes. The pinch is otherwise untouched: same 1.3 / 0.77 ratio, same 1–6 columns,
+  same plop and buzz, and a one-finger drag-select and the 430 ms long press behave exactly as they did. Tiles,
+  header and gestures are unchanged. `tools/test_suite.js` gains two checks: one drives a real two-finger pinch in
+  selection mode — finger one presses a tile, finger two lands on another, the fingers spread to 1.5x and then travel
+  40 px sideways — and reads that the second finger never takes the press over, that the drag and the timer are gone
+  when the pinch starts, that the columns still drop by one, that nothing is painted during or after the pinch and
+  that no press fires late; the other holds the shape (the non-primary guard ahead of `lpTimer=setTimeout`, and
+  `endDrag()` ahead of the distance read in the `touchstart` listener). *(1.4.9)*
 - [ ] 50. Make "All" respect the current filter (search/album), verified by a test.
 
 ## Day 6 — viewer
