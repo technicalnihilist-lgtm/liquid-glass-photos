@@ -196,7 +196,24 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
   that the new centre's `src` was one of the three already on screen before the swipe; the other holds the shape —
   `V.slides=[-1,0,1].map` creating the nodes with `document.createElement('div')`, no `track.innerHTML` in `build()`,
   and the rotation `n.push(n.shift())`. *(1.5.1)*
-- [ ] 52. Release the offscreen slide images (`src=''`) to free memory.
+- [x] 52. Release the offscreen slide images (`src=''`) to free memory — done: the viewer keeps a decoded
+  full-size bitmap for every slide that carries a `src`, and since item 51 made the three slide nodes permanent, all
+  three kept one for as long as the viewer was open — two extra full-resolution decodes of photos nobody was looking
+  at. `releaseOffscreen()` now drops the `src` of every slide except the centre one. It runs 560 ms after the viewer
+  settles, armed by `build()` (which runs 230 ms into the 500 ms slide transition) and re-armed by `end()` on every
+  pointer release, so the release never lands while the track is still moving and never touches the photo on screen.
+  A slide that holds no photo at all — the ends of the list, or after a delete shortens it — gives its bitmap back
+  immediately in `build()` instead of keeping a stale `src` for the life of the viewer, and `closeViewer()` clears
+  all three once the element has left the document, so the bitmaps go with the fade rather than waiting for the
+  detached DOM to be collected. Nothing visible changes: `pointNear()` re-points the two offscreen slides from the
+  same `p.src`/`fullSrc(p)` that a build would use the moment a finger lands on the stage, before the gesture is
+  read, so the photo that slides in is already loading, and the centre slide is never cleared, so the photo on
+  screen never blinks. Same three nodes, same rotation, same 230 ms swap, same 500 ms slide, same pop and plop, same
+  header, bar, hint, gestures and double-tap zoom. `tools/test_suite.js` gains two checks: one swipes, waits for the
+  viewer to settle, reads that exactly one of the three slides still carries a `src` and that it is the one with
+  `data-c`, then presses on the stage and reads that all three are pointed again with the centre's `src` unchanged;
+  the other holds the shape — `releaseOffscreen()` removes the attribute, `pointNear()` re-sets it, the pointerdown
+  handler calls `pointNear()` before it captures the pointer, and `closeViewer()` clears the timer. *(1.5.2)*
 - [ ] 53. Clamp pan so the image cannot be dragged fully off screen.
 - [ ] 54. Snap zoom back to 1 when swiping to the next photo (audit).
 - [ ] 55. Debounce double-tap detection to the system double-tap timeout.
