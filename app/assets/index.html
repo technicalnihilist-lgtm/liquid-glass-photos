@@ -962,6 +962,14 @@ function openViewer(list,i){
     const mx=Math.max(0,(im.offsetWidth*V.zoom-b.w)/2),my=Math.max(0,(im.offsetHeight*V.zoom-b.h)/2);
     V.tx=Math.min(mx,Math.max(-mx,V.tx));V.ty=Math.min(my,Math.max(-my,V.ty));
   };
+  /* the zoom belongs to the photo it was put on: every path that puts a different photo on the
+     stage snaps the transform back to 1 first, so the next photo is never opened still carrying
+     the last one's 2.4x — a swipe on it stays a swipe instead of being read as a pan. */
+  const snapZoom=()=>{
+    V.zoom=1;V.tx=V.ty=0;
+    const im=cur();if(im){im.style.transition='';im.style.transform=''}
+  };
+  V.snapZoom=snapZoom;
   stage.addEventListener('pointerdown',e=>{pointNear();stage.setPointerCapture(e.pointerId);st={x:e.clientX,y:e.clientY,t:Date.now(),dx:0,dy:0,mode:null,tx:V.tx,ty:V.ty};track.style.transition='none'});
   stage.addEventListener('pointermove',e=>{
     if(!st)return;st.dx=e.clientX-st.x;st.dy=e.clientY-st.y;
@@ -983,7 +991,7 @@ function openViewer(list,i){
       const dir=s.dx<0?1:-1,ni=V.i+dir;
       if(go&&ni>=0&&ni<V.list.length){
         track.style.transform=`translateX(${-dir*W()}px)`;plop(.7);
-        setTimeout(()=>{V.i=ni;V.zoom=1;V.tx=V.ty=0;track.style.transition='none';build(false,dir)},230);
+        setTimeout(()=>{V.i=ni;snapZoom();track.style.transition='none';build(false,dir)},230);
       }else track.style.transform='translateX(0)';
     }else if(s.mode==='v'){
       if(Math.abs(s.dy)>120)closeViewer();
@@ -1002,10 +1010,10 @@ function openViewer(list,i){
       case 'del':{
         trash([p.id]);undoIds=[p.id];
         V.list.splice(V.i,1);
-        if(!V.list.length){closeViewer()}else{V.i=Math.min(V.i,V.list.length-1);build()}
+        if(!V.list.length){closeViewer()}else{V.i=Math.min(V.i,V.list.length-1);snapZoom();build()}
         toast('Moved to Trash',true);break;
       }
-      case 'restore':{untrash([p.id]);V.list.splice(V.i,1);if(!V.list.length)closeViewer();else{V.i=Math.min(V.i,V.list.length-1);build()}toast('Restored');break}
+      case 'restore':{untrash([p.id]);V.list.splice(V.i,1);if(!V.list.length)closeViewer();else{V.i=Math.min(V.i,V.list.length-1);snapZoom();build()}toast('Restored');break}
       case 'purge':{if(N&&N.delete){N.delete(JSON.stringify([p.id]))}break}
     }
   });
