@@ -548,6 +548,58 @@ function check(name, ok, detail) {
   await page.waitForFunction((n) => document.querySelectorAll('.tile').length === n, { timeout: 10000 }, COUNT);
   check('viewer opens with controls and closes back to ' + COUNT + ' tiles', viewerOk);
 
+  /* 8b. a swipe reuses the three slide nodes instead of rebuilding them: the elements that
+         exist when the viewer opens are the elements that are there after a swipe, only their
+         src and their role change, and the centre one is the photo that was already preloaded. */
+  await page.click('.tile');
+  await page.waitForSelector('.viewer .slide[data-c] img', { timeout: 10000 });
+  const slidesBefore = await page.evaluate(() => {
+    const s = [...document.querySelectorAll('.viewer .slide')];
+    window.__slideNodes = s;
+    window.__slideImgs = s.map((d) => d.firstElementChild);
+    return {
+      n: s.length,
+      cur: document.querySelector('.viewer .slide[data-c] img').getAttribute('src'),
+      srcs: s.map((d) => d.firstElementChild.getAttribute('src')),
+    };
+  });
+  const stg = await page.$eval('.viewer .stage', (e) => {
+    const r = e.getBoundingClientRect();
+    return { x: r.x, y: r.y, w: r.width, h: r.height };
+  });
+  await page.mouse.move(stg.x + stg.w * 0.8, stg.y + stg.h * 0.5);
+  await page.mouse.down();
+  for (let i = 1; i <= 9; i++) {
+    await page.mouse.move(stg.x + stg.w * (0.8 - 0.065 * i), stg.y + stg.h * 0.5);
+  }
+  await page.mouse.up();
+  await settle(600);
+  const slidesAfter = await page.evaluate(() => {
+    const s = [...document.querySelectorAll('.viewer .slide')];
+    const curEl = document.querySelector('.viewer .slide[data-c] img');
+    return {
+      n: s.length,
+      same: s.length === window.__slideNodes.length &&
+        s.every((d, i) => d === window.__slideNodes[i] && d.firstElementChild === window.__slideImgs[i]),
+      cur: curEl ? curEl.getAttribute('src') : null,
+      centres: s.filter((d) => d.hasAttribute('data-c')).length,
+      srcs: s.map((d) => d.firstElementChild.getAttribute('src')),
+    };
+  });
+  check('a swipe reuses the three slide nodes (' + slidesBefore.n + ' nodes, same nodes ' +
+    slidesAfter.same + ', centre ' + (slidesBefore.cur !== slidesAfter.cur ? 'advanced' : 'stuck') +
+    ', preloaded ' + (slidesBefore.srcs.includes(slidesAfter.cur) ? 'yes' : 'no') + ')',
+    slidesBefore.n === 3 && slidesAfter.n === 3 && slidesAfter.same === true &&
+    slidesAfter.centres === 1 && slidesBefore.cur !== slidesAfter.cur &&
+    slidesBefore.srcs.includes(slidesAfter.cur));
+  const viewerHtml = fs.readFileSync(APP, 'utf8');
+  const buildFn = (viewerHtml.match(/function build\(keepTrack,dir\)[\s\S]*?\n\}/) || [''])[0];
+  check('viewer build() creates its slide nodes once and never rebuilds them with innerHTML',
+    /V\.slides=\[-1,0,1\]\.map/.test(buildFn) && /document\.createElement\('div'\)/.test(buildFn) &&
+    !/track\.innerHTML/.test(buildFn) && /n\.push\(n\.shift\(\)\)/.test(buildFn));
+  await page.click('[data-v="close"]');
+  await page.waitForFunction(() => !document.querySelector('.viewer'), { timeout: 10000 });
+
   /* 9. the grid-size setting changes the tile width */
   const w0 = await page.$eval('.tile', (t) => t.getBoundingClientRect().width);
   await page.click('[data-act="settings"]');
