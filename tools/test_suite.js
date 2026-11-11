@@ -633,6 +633,74 @@ function check(name, ok, detail) {
     /removeAttribute\('src'\)/.test(relFn) && /im\.src=src/.test(ptFn) &&
     /pointerdown',e=>\{pointNear\(\)/.test(viewerHtml) &&
     /armRelease\(\);/.test(viewerHtml) && /clearTimeout\(relT\)/.test(viewerHtml));
+  /* 8d. a pan cannot drag the photo off the screen: the harness thumb is 160 px, so the centre
+         slide is given the box a full-resolution photo would fill, zoomed to 2.4x with a real
+         double tap and then dragged far past the edge — the image has to stop at the edge of its
+         slide instead of leaving the stage. */
+  await page.evaluate(() => {
+    /* a real full-size photo is laid out with object-fit: contain, so its box fills the slide's
+       content area — give the harness thumb that box, then 2.4x overflows it on both axes */
+    const sl = document.querySelector('.viewer .slide[data-c]');
+    const im = sl.querySelector('img'), cs = getComputedStyle(sl);
+    im.style.maxWidth = 'none'; im.style.maxHeight = 'none';
+    im.style.width = (sl.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)) + 'px';
+    im.style.height = (sl.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)) + 'px';
+  });
+  await settle(150);
+  const cx = stg2.x + stg2.w * 0.5, cy = stg2.y + stg2.h * 0.5;
+  await page.mouse.click(cx, cy);
+  await settle(60);
+  await page.mouse.click(cx, cy);
+  await settle(500);
+  const zoomBefore = await page.evaluate(() => V.zoom);
+  for (let g = 0; g < 10; g++) {
+    await page.mouse.move(cx, cy);
+    await page.mouse.down();
+    for (let i = 1; i <= 3; i++) await page.mouse.move(cx + i * 50, cy + i * 50);
+    await page.mouse.up();
+    await settle(30);
+  }
+  await settle(200);
+  const pan = await page.evaluate(() => {
+    const sl = document.querySelector('.viewer .slide[data-c]');
+    const im = sl.querySelector('img');
+    const cs = getComputedStyle(sl), sr = sl.getBoundingClientRect(), r = im.getBoundingClientRect();
+    return {
+      zoom: V.zoom, tx: V.tx, ty: V.ty, baseW: im.offsetWidth, baseH: im.offsetHeight,
+      box: { l: sr.left + parseFloat(cs.paddingLeft), r: sr.right - parseFloat(cs.paddingRight),
+             t: sr.top + parseFloat(cs.paddingTop), b: sr.bottom - parseFloat(cs.paddingBottom) },
+      img: { l: r.left, r: r.right, t: r.top, b: r.bottom },
+      stage: (() => { const q = document.querySelector('.viewer .stage').getBoundingClientRect();
+                      return { l: q.left, r: q.right, t: q.top, b: q.bottom }; })(),
+    };
+  });
+  const boxW = pan.box.r - pan.box.l, boxH = pan.box.b - pan.box.t;
+  const mx = Math.max(0, (pan.baseW * pan.zoom - boxW) / 2);
+  const my = Math.max(0, (pan.baseH * pan.zoom - boxH) / 2);
+  const coversX = pan.img.l <= pan.box.l + 1.5 && pan.img.r >= pan.box.r - 1.5;
+  const coversY = pan.img.t <= pan.box.t + 1.5 && pan.img.b >= pan.box.b - 1.5;
+  const edgeX = Math.abs(pan.img.r - pan.box.r) < 1.5 || Math.abs(pan.img.l - pan.box.l) < 1.5;
+  const edgeY = Math.abs(pan.img.b - pan.box.b) < 1.5 || Math.abs(pan.img.t - pan.box.t) < 1.5;
+  const centred = (a, b, c, d) => Math.abs((a + b) / 2 - (c + d) / 2) < 1.5;
+  const xOk = mx > 0 ? coversX && edgeX && Math.abs(Math.abs(pan.tx) - mx) < 1.5
+                     : centred(pan.img.l, pan.img.r, pan.box.l, pan.box.r) && Math.abs(pan.tx) < 1.5;
+  const yOk = my > 0 ? coversY && edgeY && Math.abs(Math.abs(pan.ty) - my) < 1.5
+                     : centred(pan.img.t, pan.img.b, pan.box.t, pan.box.b) && Math.abs(pan.ty) < 1.5;
+  const onStage = pan.img.r > pan.stage.l && pan.img.l < pan.stage.r &&
+                  pan.img.b > pan.stage.t && pan.img.t < pan.stage.b;
+  check('a pan stops at the edge instead of dragging the photo off screen (zoom ' + pan.zoom +
+    ', drag ' + Math.round(10 * 150) + ' px, tx ' + Math.round(pan.tx) + '/' + Math.round(mx) +
+    ', ty ' + Math.round(pan.ty) + '/' + Math.round(my) + ', img ' + Math.round(pan.img.l) + '..' +
+    Math.round(pan.img.r) + ' / ' + Math.round(pan.img.t) + '..' + Math.round(pan.img.b) +
+    ', box ' + Math.round(pan.box.l) + '..' + Math.round(pan.box.r) + ' / ' +
+    Math.round(pan.box.t) + '..' + Math.round(pan.box.b) + ')',
+    zoomBefore > 1 && pan.zoom > 1 && mx > 0 && my > 0 && xOk && yOk && onStage);
+  const clampFn = (viewerHtml.match(/const clampPan=\(\)=>\{[\s\S]*?\n  \};/) || [''])[0];
+  check('viewer clamps the pan to the slide before it paints it',
+    /const panBox=\(\)=>\{/.test(viewerHtml) && /im\.offsetWidth\*V\.zoom/.test(clampFn) &&
+    /im\.offsetHeight\*V\.zoom/.test(clampFn) && /V\.tx=Math\.min\(mx,Math\.max\(-mx,V\.tx\)\)/.test(clampFn) &&
+    /V\.ty=Math\.min\(my,Math\.max\(-my,V\.ty\)\)/.test(clampFn) &&
+    /clampPan\(\);applyZ\(false\)/.test(viewerHtml));
   await page.click('[data-v="close"]');
   await page.waitForFunction(() => !document.querySelector('.viewer'), { timeout: 10000 });
 
