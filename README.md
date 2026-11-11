@@ -13,9 +13,9 @@ A real, installable Android **photos** app — the liquid-glass UI from the orig
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.4.9, 118 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.5.2, 118 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.4.9 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.5.2 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -114,6 +114,24 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.5.2 — day 6 of the 20-day optimisation plan, thirty-fourth pass
+No UI change, no new features. Item 52 of the plan: the offscreen slide images are released.
+- Every slide that carries a `src` holds a decoded full-size bitmap, and since the three slide nodes became permanent
+  in 1.5.1 all three held one for as long as the viewer was open — two full-resolution decodes of photos the user was
+  not looking at. The viewer now drops the `src` of the two offscreen slides 560 ms after it settles, which is after
+  the 500 ms slide transition has finished, so nothing is released while the track is moving and the photo on screen
+  is never touched.
+- A slide with no photo — the ends of the list, or after a delete shortens it — gives its bitmap back at once instead
+  of keeping a stale `src` for the life of the viewer, and closing the viewer drops all three once the element has
+  left the document.
+- A finger landing on the stage re-points the two offscreen slides from the same `src` a build would use, before the
+  gesture is read, so the photo that slides in is already loading; the centre slide is never cleared, so the photo on
+  screen never blinks. Same slides, same swap, same pop and plop, same gestures.
+- `tools/test_suite.js` gains two checks: one swipes, settles, reads that exactly one slide still has a `src` and that
+  it is the one on screen, then presses on the stage and reads that all three are pointed again; the other holds the
+  shape — `releaseOffscreen()` removes the attribute, `pointNear()` re-sets it, pointerdown calls it first.
+- 60 checks in `tools/test_suite.js`, all PASS.
 
 ### 1.5.1 — day 6 of the 20-day optimisation plan, thirty-third pass
 No UI change, no new features. Item 51 of the plan: the viewer's three slide nodes are reused instead of rebuilt.
