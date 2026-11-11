@@ -701,6 +701,41 @@ function check(name, ok, detail) {
     /im\.offsetHeight\*V\.zoom/.test(clampFn) && /V\.tx=Math\.min\(mx,Math\.max\(-mx,V\.tx\)\)/.test(clampFn) &&
     /V\.ty=Math\.min\(my,Math\.max\(-my,V\.ty\)\)/.test(clampFn) &&
     /clampPan\(\);applyZ\(false\)/.test(viewerHtml));
+
+  /* 8e. the zoom belongs to the photo it was put on: the photo on the stage is still at 2.4x, so
+         delete it — the next photo must open at 1x, and a swipe on it must still be a swipe that
+         advances instead of a pan that re-applies the deleted photo's zoom. */
+  const zoomBeforeDel = await page.evaluate(() => V.zoom);
+  await page.click('[data-v="del"]');
+  await settle(500);
+  const afterDel = await page.evaluate(() => {
+    const im = document.querySelector('.viewer .slide[data-c] img');
+    return { zoom: V.zoom, i: V.i, tx: V.tx, ty: V.ty, tr: im ? im.style.transform : 'no-img' };
+  });
+  await page.mouse.move(stg2.x + stg2.w * 0.8, cy);
+  await page.mouse.down();
+  for (let i = 1; i <= 9; i++) await page.mouse.move(stg2.x + stg2.w * (0.8 - 0.065 * i), cy);
+  await page.mouse.up();
+  await settle(700);
+  const afterSnap = await page.evaluate(() => {
+    const im = document.querySelector('.viewer .slide[data-c] img');
+    return { zoom: V.zoom, i: V.i, tx: V.tx, ty: V.ty, tr: im ? im.style.transform : 'no-img' };
+  });
+  check('zoom snaps back to 1 when the photo changes (deleted at ' + zoomBeforeDel +
+    'x -> next photo at ' + afterDel.zoom + 'x, transform "' + afterDel.tr + '", swipe lands on ' +
+    'photo ' + afterSnap.i + ' at ' + afterSnap.zoom + 'x)',
+    zoomBeforeDel > 1 && afterDel.zoom === 1 && afterDel.tx === 0 && afterDel.ty === 0 &&
+    !/scale\(2\.4\)/.test(afterDel.tr) &&
+    afterSnap.i === afterDel.i + 1 && afterSnap.zoom === 1 && afterSnap.tx === 0 && afterSnap.ty === 0 &&
+    !/scale\(2\.4\)/.test(afterSnap.tr));
+  const snapFn = (viewerHtml.match(/const snapZoom=\(\)=>\{[\s\S]*?\n  \};/) || [''])[0];
+  check('viewer snaps the zoom on every path that changes the photo',
+    /V\.zoom=1;V\.tx=V\.ty=0/.test(snapFn) && /im\.style\.transform=''/.test(snapFn) &&
+    /V\.i=ni;snapZoom\(\)/.test(viewerHtml) &&
+    (viewerHtml.match(/snapZoom\(\);build\(\)/g) || []).length === 2 &&
+    !/V\.zoom=1;V\.tx=V\.ty=0;track/.test(viewerHtml));
+  /* put the deleted photo back so the pages opened further down still see the whole library */
+  await page.evaluate(() => { TRASH.clear(); saveTrash(); });
   await page.click('[data-v="close"]');
   await page.waitForFunction(() => !document.querySelector('.viewer'), { timeout: 10000 });
 
