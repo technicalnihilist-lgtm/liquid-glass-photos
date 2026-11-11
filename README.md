@@ -115,6 +115,25 @@ The APK ships with **no** sample media — it is empty until it reads your galle
 
 ## Changelog
 
+### 1.5.1 — day 6 of the 20-day optimisation plan, thirty-third pass
+No UI change, no new features. Item 51 of the plan: the viewer's three slide nodes are reused instead of rebuilt.
+- Opening the viewer used to write `track.innerHTML` with three fresh `.slide` divs and three fresh `<img>` elements,
+  and every swipe wrote it again — throwing away the two photos that were already in the document, one of them the
+  photo the swipe was moving to, and asking the WebView to fetch and decode them a second time.
+- The three nodes are now created once when the viewer opens and rotated on a swipe: the node already showing the
+  next photo becomes the centre one, the node showing the previous photo becomes the new `next`, and each is re-pointed
+  at the id its role holds. A forward swipe therefore sets one `src` — the recycled offscreen node — instead of
+  rebuilding the track.
+- `data-c` travels with the centre role, so the `popIn` animation still plays on the arriving photo and never re-fires
+  on the one that left; a delete or restore rebuilds in place and restarts it across a forced reflow. Stale inline
+  `transform`/`transition` from a zoom or pan is cleared, so a swipe out of a zoomed photo lands un-zoomed as before.
+- Same slides, same track, same 230 ms swap, same pop and plop, same header, bar, hint, gestures and double-tap zoom.
+- `tools/test_suite.js` gains two checks: one swipes a real pointer across the stage and reads that the same three
+  slide elements and the same three `<img>` elements survive the swipe, that exactly one carries `data-c`, that the
+  centre advanced and that the new centre was already one of the three on screen; the other holds the shape — nodes
+  created once from `[-1,0,1]`, no `track.innerHTML` in `build()`, rotation via `n.push(n.shift())`.
+- 58 checks in `tools/test_suite.js`, all PASS.
+
 ### 1.5.0 — day 6 of the 20-day optimisation plan, thirty-second pass
 No UI change, no new features. Item 50 of the plan: "All" is verified against the current filter.
 - The header's **All** button and the swipe-to-the-right-edge select-all both take the list the screen is showing —
