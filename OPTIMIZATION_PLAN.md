@@ -214,7 +214,24 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
   `data-c`, then presses on the stage and reads that all three are pointed again with the centre's `src` unchanged;
   the other holds the shape — `releaseOffscreen()` removes the attribute, `pointNear()` re-sets it, the pointerdown
   handler calls `pointNear()` before it captures the pointer, and `closeViewer()` clears the timer. *(1.5.2)*
-- [ ] 53. Clamp pan so the image cannot be dragged fully off screen.
+- [x] 53. Clamp pan so the image cannot be dragged fully off screen — done: a zoomed photo could be dragged
+  anywhere. `V.tx`/`V.ty` were the raw sum of the gesture (`st.tx+st.dx`) with nothing to stop them, so a finger that
+  kept moving pushed the picture past its own edge and off the stage — a 1500 px drag at 2.4x left a full-screen
+  photo entirely outside the viewport, with a blank viewer and no gesture that brought it back except a double-tap or
+  a close. `clampPan()` now runs on every pan frame, before the transform is painted, and bounds the translation to
+  the room the scaled image actually has inside its slide: `panBox()` measures the centre slide's content box (its
+  `clientWidth`/`clientHeight` less the `--sat`/`--sab` padding), and each axis is clamped to
+  `(offsetWidth*V.zoom - box.w)/2`, which is zero when the scaled image is still smaller than the slide — so that
+  axis stays centred — and exactly the overhang when it is larger, so the image edge stops at the slide edge instead
+  of travelling past it. `offsetWidth`/`offsetHeight` are the layout size, so the bound is read from the untransformed
+  box and does not drift as the pan applies. Nothing visible changes: the same pan, the same 2.4x double-tap zoom, the
+  same swipe, the same pop and plop, and the photo can still be moved over its whole area — only the point where it
+  would have left the screen is now the end of the drag. `tools/test_suite.js` gains two checks: one gives the centre
+  slide the box a full-resolution photo fills, double-taps to 2.4x with real clicks and drags 1500 px past the edge in
+  ten gestures, then reads that `|tx|`/`|ty|` equal the computed overhang, that the image still covers the slide on
+  both axes and that its edge sits on the slide edge; the other holds the shape — `panBox()` measures the centre
+  slide's content box, `clampPan()` uses `offsetWidth*V.zoom`/`offsetHeight*V.zoom` with `Math.min(mx,Math.max(-mx,…))`
+  and `Math.min(my,Math.max(-my,…))`, and the pan branch calls `clampPan();applyZ(false)`. *(1.5.3)*
 - [ ] 54. Snap zoom back to 1 when swiping to the next photo (audit).
 - [ ] 55. Debounce double-tap detection to the system double-tap timeout.
 - [ ] 56. Avoid layout thrash on swipe by pre-measuring the width.
