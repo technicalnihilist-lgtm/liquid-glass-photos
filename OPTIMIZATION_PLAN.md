@@ -177,7 +177,25 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
 
 ## Day 6 — viewer
 
-- [ ] 51. Reuse the three slide nodes instead of rebuilding all of them on swipe.
+- [x] 51. Reuse the three slide nodes instead of rebuilding all of them on swipe — done: the viewer now creates its
+  three `.slide` nodes once, when it opens, and `build()` never writes `track.innerHTML` again. A swipe rotates the
+  three nodes instead of re-creating them: the node that was already showing the next photo (`left:100%`) is rotated
+  into the centre role, the node that was showing the previous photo becomes the new `next`, and each node is then
+  re-pointed at the id its role now holds. So the photo that slides in is the one that was already loaded and decoded
+  — a forward swipe now sets one `src` (the recycled left node) instead of writing three `<img>` elements, discarding
+  the two that were already in the document and asking the WebView to load them again. `data-c` (which carries the
+  `popIn` animation) moves to the node that becomes the centre, so the animation still plays on the arriving photo
+  and never re-fires on the one that left; when a delete or a restore rebuilds without a direction the centre node is
+  the same node it was, so its `data-c` is dropped and re-set across a forced reflow to restart the animation exactly
+  as a fresh element did. Any inline `transform`/`transition` left by a zoom or a pan is cleared when a node is
+  re-pointed, so a swipe out of a zoomed photo lands un-zoomed the way the old rebuild did. What does not change:
+  same three slides, same `left:-100%/0/100%` track, same 230 ms swap, same pop and plop, same header, bar, hint,
+  gestures and double-tap zoom. `tools/test_suite.js` gains two checks: one opens the viewer, records the three slide
+  nodes and their `<img>` children, swipes a real pointer across the stage and reads that the same three elements are
+  still in the document (not just three of them), that exactly one carries `data-c`, that the centre advanced, and
+  that the new centre's `src` was one of the three already on screen before the swipe; the other holds the shape —
+  `V.slides=[-1,0,1].map` creating the nodes with `document.createElement('div')`, no `track.innerHTML` in `build()`,
+  and the rotation `n.push(n.shift())`. *(1.5.1)*
 - [ ] 52. Release the offscreen slide images (`src=''`) to free memory.
 - [ ] 53. Clamp pan so the image cannot be dragged fully off screen.
 - [ ] 54. Snap zoom back to 1 when swiping to the next photo (audit).
