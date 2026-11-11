@@ -13,9 +13,9 @@ A real, installable Android **photos** app — the liquid-glass UI from the orig
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.5.2, 118 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.5.3, 118 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.5.2 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.5.3 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -114,6 +114,27 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.5.3 — day 6 of the 20-day optimisation plan, thirty-fifth pass
+No UI change, no new features. Item 53 of the plan: a pan is clamped so the photo cannot be dragged off screen.
+- A zoomed photo could be dragged anywhere. The viewer's `V.tx`/`V.ty` were the raw sum of the gesture with nothing
+  to stop them, so a finger that kept moving pushed the picture past its own edge and off the stage — a 1500 px drag
+  at 2.4x left a full-screen photo entirely outside the viewport, with a blank viewer and no way back except a
+  double-tap or a close.
+- `clampPan()` now runs on every pan frame, before the transform is painted, and bounds the translation to the room
+  the scaled image actually has inside its slide: the centre slide's content box (its `clientWidth`/`clientHeight`
+  less the `--sat`/`--sab` padding) against the image's layout size times the zoom. Where the scaled image is larger
+  than the slide its edge stops at the slide edge; on an axis where it is still smaller the overhang is zero and it
+  stays centred. The bound is read from `offsetWidth`/`offsetHeight`, the untransformed layout size, so it does not
+  drift as the pan applies.
+- Same pan, same 2.4x double-tap zoom, same swipe, same pop and plop — the photo still moves over its whole area, the
+  drag now just ends where the image would have left the screen.
+- `tools/test_suite.js` gains two checks: one gives the centre slide the box a full-resolution photo fills, double-taps
+  to 2.4x with real clicks and drags 1500 px past the edge, then reads that the translation equals the computed
+  overhang, that the image still covers the slide on both axes and that its edge sits on the slide edge; the other
+  holds the shape — `panBox()` measures the content box, `clampPan()` clamps both axes, and the pan branch calls
+  `clampPan();applyZ(false)`.
+- 62 checks in `tools/test_suite.js`, all PASS.
 
 ### 1.5.2 — day 6 of the 20-day optimisation plan, thirty-fourth pass
 No UI change, no new features. Item 52 of the plan: the offscreen slide images are released.
