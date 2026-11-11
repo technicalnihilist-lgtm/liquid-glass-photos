@@ -946,13 +946,29 @@ function openViewer(list,i){
   const cur=()=>$('.slide[data-c] img',el);
   const applyZ=(anim)=>{const im=cur();if(!im)return;im.style.transition=anim?'':'none';im.style.transform=`translate(${V.tx}px,${V.ty}px) scale(${V.zoom})`};
   V.applyZ=applyZ;
+  /* a pan is clamped to the room the scaled photo actually has inside its slide, so the image can
+     never be dragged off the screen: where it is wider (or taller) than the slide its edge stops
+     at the edge, and on an axis where it is still smaller than the slide it stays centred. */
+  const panBox=()=>{
+    const sl=$('.slide[data-c]',el);if(!sl)return null;
+    const cs=getComputedStyle(sl);
+    return {w:sl.clientWidth-parseFloat(cs.paddingLeft)-parseFloat(cs.paddingRight),
+            h:sl.clientHeight-parseFloat(cs.paddingTop)-parseFloat(cs.paddingBottom)};
+  };
+  const clampPan=()=>{
+    const im=cur();if(!im)return;
+    if(!(V.zoom>1)){V.tx=V.ty=0;return}
+    const b=panBox();if(!b)return;
+    const mx=Math.max(0,(im.offsetWidth*V.zoom-b.w)/2),my=Math.max(0,(im.offsetHeight*V.zoom-b.h)/2);
+    V.tx=Math.min(mx,Math.max(-mx,V.tx));V.ty=Math.min(my,Math.max(-my,V.ty));
+  };
   stage.addEventListener('pointerdown',e=>{pointNear();stage.setPointerCapture(e.pointerId);st={x:e.clientX,y:e.clientY,t:Date.now(),dx:0,dy:0,mode:null,tx:V.tx,ty:V.ty};track.style.transition='none'});
   stage.addEventListener('pointermove',e=>{
     if(!st)return;st.dx=e.clientX-st.x;st.dy=e.clientY-st.y;
     if(!st.mode&&Math.max(Math.abs(st.dx),Math.abs(st.dy))>8)st.mode=V.zoom>1?'pan':(Math.abs(st.dx)>Math.abs(st.dy)?'h':'v');
     if(st.mode==='h'){let d=st.dx;if((d>0&&V.i===0)||(d<0&&V.i===V.list.length-1))d*=.3;track.style.transform=`translateX(${d}px)`}
     else if(st.mode==='v'){const s=Math.max(.7,1-Math.abs(st.dy)/900);track.style.transform=`translate(${st.dx*.4}px,${st.dy}px) scale(${s})`;bg.style.opacity=Math.max(0,1-Math.abs(st.dy)/420)}
-    else if(st.mode==='pan'){V.tx=st.tx+st.dx;V.ty=st.ty+st.dy;applyZ(false)}
+    else if(st.mode==='pan'){V.tx=st.tx+st.dx;V.ty=st.ty+st.dy;clampPan();applyZ(false)}
   });
   const end=()=>{
     if(!st)return;const s=st;st=null;const dt=Date.now()-s.t;armRelease();
