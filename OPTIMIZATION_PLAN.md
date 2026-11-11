@@ -232,7 +232,21 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
   both axes and that its edge sits on the slide edge; the other holds the shape — `panBox()` measures the centre
   slide's content box, `clampPan()` uses `offsetWidth*V.zoom`/`offsetHeight*V.zoom` with `Math.min(mx,Math.max(-mx,…))`
   and `Math.min(my,Math.max(-my,…))`, and the pan branch calls `clampPan();applyZ(false)`. *(1.5.3)*
-- [ ] 54. Snap zoom back to 1 when swiping to the next photo (audit).
+- [x] 54. Snap zoom back to 1 when swiping to the next photo (audit) — done: the audit found the zoom was held by
+  the viewer rather than by the photo. The swipe path did reset `V.zoom`/`V.tx`/`V.ty` before `build()`, but the two
+  other paths that change the photo did not: deleting the photo you had double-tapped to 2.4x left `V.zoom` at 2.4
+  while `build()` cleared the image transform, so the next photo was painted at 1x with the viewer still believing
+  it was zoomed — the following horizontal swipe was read as a pan and re-applied `scale(2.4)` to a photo the user
+  had never zoomed, and it could not advance at all; the same stale state came out of a restore in Trash.
+  `snapZoom()` now resets `V.zoom` to 1, `V.tx`/`V.ty` to 0 and clears the centre image's transform, and every path
+  that puts a different photo on the stage calls it: the swipe settle (`V.i=ni;snapZoom()`), the delete and the
+  restore (`snapZoom();build()`). The photo on screen keeps its zoom while it is the photo on screen — only the
+  hand-off snaps it back, so the swipe, the 2.4x double-tap, the pan and the pop and plop are all unchanged.
+  `tools/test_suite.js` gains two checks: one double-taps to 2.4x, deletes that photo, reads that the next photo
+  opens at 1x with no transform, swipes with a real pointer and reads that it advanced exactly one photo at 1x; the
+  other holds the shape — `snapZoom()` resets the zoom and the translation and clears the transform, the swipe calls
+  it before `build()`, the delete and the restore both call it, and no inline `V.zoom=1;V.tx=V.ty=0` is left in the
+  swipe path. *(1.5.4)*
 - [ ] 55. Debounce double-tap detection to the system double-tap timeout.
 - [ ] 56. Avoid layout thrash on swipe by pre-measuring the width.
 - [ ] 57. Stop the hint timer when the viewer closes.
