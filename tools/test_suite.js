@@ -597,6 +597,42 @@ function check(name, ok, detail) {
   check('viewer build() creates its slide nodes once and never rebuilds them with innerHTML',
     /V\.slides=\[-1,0,1\]\.map/.test(buildFn) && /document\.createElement\('div'\)/.test(buildFn) &&
     !/track\.innerHTML/.test(buildFn) && /n\.push\(n\.shift\(\)\)/.test(buildFn));
+
+  /* 8c. the two offscreen slides give their decoded bitmaps back: once a swipe has settled only
+         the centre slide still carries a src, and the moment a finger lands on the stage both
+         neighbours are pointed at their photo again so the arrival is already loading. */
+  await settle(900);
+  const released = await page.evaluate(() => {
+    const s = [...document.querySelectorAll('.viewer .slide')];
+    const srcs = s.map((d) => d.firstElementChild.getAttribute('src'));
+    return {
+      srcs,
+      centre: s.findIndex((d) => d.hasAttribute('data-c')),
+      kept: srcs.filter(Boolean).length,
+    };
+  });
+  const stg2 = await page.$eval('.viewer .stage', (e) => {
+    const r = e.getBoundingClientRect();
+    return { x: r.x, y: r.y, w: r.width, h: r.height };
+  });
+  await page.mouse.move(stg2.x + stg2.w * 0.5, stg2.y + stg2.h * 0.5);
+  await page.mouse.down();
+  await settle(60);
+  const pointed = await page.evaluate(() =>
+    [...document.querySelectorAll('.viewer .slide')].map((d) => d.firstElementChild.getAttribute('src')));
+  await page.mouse.up();
+  await settle(700);
+  check('offscreen slides release their bitmap at rest (' + released.kept +
+    ' of 3 kept, the one on screen) and are pointed again on touch (' +
+    pointed.filter(Boolean).length + ' of 3)',
+    released.kept === 1 && !!released.srcs[released.centre] &&
+    pointed.filter(Boolean).length === 3 && pointed[released.centre] === released.srcs[released.centre]);
+  const relFn = (viewerHtml.match(/const releaseOffscreen=\(\)=>\{[\s\S]*?\n\};/) || [''])[0];
+  const ptFn = (viewerHtml.match(/const pointNear=\(\)=>\{[\s\S]*?\n\};/) || [''])[0];
+  check('viewer drops the offscreen src and re-points it on pointerdown, and drops all three on close',
+    /removeAttribute\('src'\)/.test(relFn) && /im\.src=src/.test(ptFn) &&
+    /pointerdown',e=>\{pointNear\(\)/.test(viewerHtml) &&
+    /armRelease\(\);/.test(viewerHtml) && /clearTimeout\(relT\)/.test(viewerHtml));
   await page.click('[data-v="close"]');
   await page.waitForFunction(() => !document.querySelector('.viewer'), { timeout: 10000 });
 
