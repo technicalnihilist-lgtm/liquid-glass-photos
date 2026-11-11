@@ -910,6 +910,28 @@ function openInfo(p){
 
 /* ---------- viewer ---------- */
 let V=null;
+let relT=0;
+/* every slide that still has a src holds a decoded full-size bitmap. Only the photo the user is
+   looking at needs to stay decoded, so the two offscreen slides give theirs back once a swipe has
+   settled (the slide transition runs 500 ms and build() runs 230 ms into it, so 560 ms after a
+   build nothing is moving), and they are pointed again the moment a finger lands on the stage:
+   the photo that is about to slide in starts loading before the gesture has even been read, and
+   the centre slide is never touched, so the photo on screen never blinks. */
+const releaseOffscreen=()=>{
+  if(!V||!V.slides)return;
+  V.slides.forEach(d=>{if(d.hasAttribute('data-c'))return;const im=d.firstChild;if(im&&im.getAttribute('src'))im.removeAttribute('src')});
+};
+const armRelease=()=>{clearTimeout(relT);relT=setTimeout(releaseOffscreen,560)};
+const pointNear=()=>{
+  if(!V||!V.slides)return;
+  clearTimeout(relT);
+  V.slides.forEach((d,idx)=>{
+    if(idx===1)return;
+    const p=byId(V.list[V.i+idx-1]);if(!p)return;
+    const src=p.local?p.src:fullSrc(p),im=d.firstChild;
+    if(im&&im.getAttribute('src')!==src)im.src=src;
+  });
+};
 function openViewer(list,i){
   if(i<0)return;
   V={list,i,zoom:1,tx:0,ty:0,last:0};
@@ -924,7 +946,7 @@ function openViewer(list,i){
   const cur=()=>$('.slide[data-c] img',el);
   const applyZ=(anim)=>{const im=cur();if(!im)return;im.style.transition=anim?'':'none';im.style.transform=`translate(${V.tx}px,${V.ty}px) scale(${V.zoom})`};
   V.applyZ=applyZ;
-  stage.addEventListener('pointerdown',e=>{stage.setPointerCapture(e.pointerId);st={x:e.clientX,y:e.clientY,t:Date.now(),dx:0,dy:0,mode:null,tx:V.tx,ty:V.ty};track.style.transition='none'});
+  stage.addEventListener('pointerdown',e=>{pointNear();stage.setPointerCapture(e.pointerId);st={x:e.clientX,y:e.clientY,t:Date.now(),dx:0,dy:0,mode:null,tx:V.tx,ty:V.ty};track.style.transition='none'});
   stage.addEventListener('pointermove',e=>{
     if(!st)return;st.dx=e.clientX-st.x;st.dy=e.clientY-st.y;
     if(!st.mode&&Math.max(Math.abs(st.dx),Math.abs(st.dy))>8)st.mode=V.zoom>1?'pan':(Math.abs(st.dx)>Math.abs(st.dy)?'h':'v');
@@ -933,7 +955,7 @@ function openViewer(list,i){
     else if(st.mode==='pan'){V.tx=st.tx+st.dx;V.ty=st.ty+st.dy;applyZ(false)}
   });
   const end=()=>{
-    if(!st)return;const s=st;st=null;const dt=Date.now()-s.t;
+    if(!st)return;const s=st;st=null;const dt=Date.now()-s.t;armRelease();
     track.style.transition='transform .5s cubic-bezier(.25,1.4,.45,1)';
     if(!s.mode){
       const now=Date.now();
@@ -992,7 +1014,11 @@ function build(keepTrack,dir){
     n.forEach((d,idx)=>{
       d.style.left=((idx-1)*100)+'%';
       const p=byId(V.list[V.i+idx-1]);
-      if(!p){d.style.display='none';d.removeAttribute('data-c');return}
+      if(!p){
+        d.style.display='none';d.removeAttribute('data-c');
+        const im=d.firstChild;if(im&&im.getAttribute('src'))im.removeAttribute('src');
+        return
+      }
       d.style.display='';
       const src=p.local?p.src:fullSrc(p);
       const im=d.firstChild;
@@ -1011,11 +1037,14 @@ function build(keepTrack,dir){
     `<button data-v="restore">${I.restore}</button><button data-v="purge">${I.trash}</button>`:
     `<button data-v="share">${I.share}</button><button class="heart ${p.fav?'on':''}" data-v="fav">${I.heart}</button><button data-v="del">${I.trash}</button>`;
   setTimeout(()=>{const h=$('.hint',el);if(h)h.style.display='none'},3500);
+  armRelease();
 }
 function closeViewer(){
-  const el=V&&V.el;if(!el)return;V=null;
+  const el=V&&V.el;if(!el)return;const sl=V.slides;V=null;clearTimeout(relT);
   el.style.transition='opacity .3s,transform .4s cubic-bezier(.4,0,.2,1)';el.style.opacity=0;el.style.transform='scale(.92)';
-  setTimeout(()=>{el.remove();renderAll(true)},300);
+  /* the viewer is gone from the screen before its three bitmaps are dropped, so the fade still
+     shows the photo it was showing */
+  setTimeout(()=>{el.remove();if(sl)sl.forEach(d=>{const im=d.firstChild;if(im)im.removeAttribute('src')});renderAll(true)},300);
 }
 
 /* ---------- native callbacks ---------- */
