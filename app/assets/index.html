@@ -945,7 +945,7 @@ function openViewer(list,i){
       const dir=s.dx<0?1:-1,ni=V.i+dir;
       if(go&&ni>=0&&ni<V.list.length){
         track.style.transform=`translateX(${-dir*W()}px)`;plop(.7);
-        setTimeout(()=>{V.i=ni;V.zoom=1;V.tx=V.ty=0;track.style.transition='none';build()},230);
+        setTimeout(()=>{V.i=ni;V.zoom=1;V.tx=V.ty=0;track.style.transition='none';build(false,dir)},230);
       }else track.style.transform='translateX(0)';
     }else if(s.mode==='v'){
       if(Math.abs(s.dy)>120)closeViewer();
@@ -973,16 +973,36 @@ function openViewer(list,i){
   });
 }
 const pid=()=>byId(V.list[V.i]);
-function build(keepTrack){
+function build(keepTrack,dir){
   const el=V.el,track=$('.track',el);
+  /* the three slide nodes are created once per viewer and then reused: a swipe only rotates
+     them (the node already showing the next photo becomes the centre one) and re-points each
+     node at the id its role now holds, so no element is thrown away and no image is re-fetched */
+  if(!V.slides){
+    V.slides=[-1,0,1].map(k=>{
+      const d=document.createElement('div');d.className='slide';d.style.left=(k*100)+'%';
+      const im=document.createElement('img');im.alt='';
+      d.append(im);track.append(d);return d;
+    });
+  }
   if(!keepTrack){
     track.style.transform='';
-    track.innerHTML=[-1,0,1].map(k=>{
-      const id=V.list[V.i+k];const p=byId(id);
-      if(!p)return '';
+    const n=V.slides;
+    if(dir>0)n.push(n.shift());else if(dir<0)n.unshift(n.pop());
+    n.forEach((d,idx)=>{
+      d.style.left=((idx-1)*100)+'%';
+      const p=byId(V.list[V.i+idx-1]);
+      if(!p){d.style.display='none';d.removeAttribute('data-c');return}
+      d.style.display='';
       const src=p.local?p.src:fullSrc(p);
-      return `<div class="slide" ${k===0?'data-c':''} style="left:${k*100}%"><img src="${src}" alt=""></div>`;
-    }).join('');
+      const im=d.firstChild;
+      if(im.getAttribute('src')!==src)im.src=src;
+      im.style.transform='';im.style.transition='';
+      if(idx===1){
+        if(d.hasAttribute('data-c')){d.removeAttribute('data-c');void d.offsetWidth}
+        d.setAttribute('data-c','');
+      }else d.removeAttribute('data-c');
+    });
   }
   const p=pid();
   $('.mid b',el).textContent=fmtDay(p.date);$('.mid span',el).textContent=fmtTime(p.date);
