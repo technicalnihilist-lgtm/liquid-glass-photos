@@ -261,7 +261,21 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
   apart, 2.4x for taps 60 ms apart and 2.4x across a tap-pan-tap; the other holds the shape — `DBL_MS` from
   `META.dblTap` with a 300 fallback, the branch comparing against `DBL_MS`, no literal left, and the other
   gestures clearing the pair. *(1.5.5)*
-- [ ] 56. Avoid layout thrash on swipe by pre-measuring the width.
+- [x] 56. Avoid layout thrash on swipe by pre-measuring the width — done: the viewer asked the layout for the width
+  twice inside the swipe itself, once to decide whether the gesture had gone far enough to count (`W()*.22`) and once
+  to write the translate that carries the track to the next photo (`W()` was `()=>innerWidth`). A read like that,
+  sitting between the gesture's own transform writes, can flush the frame it is still building — the classic
+  read/write thrash, paid on every swipe. The width is now measured once, when the viewer opens: `measureW()` takes
+  `stage.clientWidth` (falling back to `innerWidth`) into `V.w`, a `resize` listener refreshes it when the window
+  actually changes, and the gesture path reads nothing but that cached number — the threshold and the settle
+  translate both use `V.w`. The listener goes with the viewer (`V.detach()` runs in `closeViewer` before `V` is
+  cleared), so opening and closing the viewer repeatedly leaves nothing registered behind it. The stage is exactly
+  one viewport wide, so the settle still moves the track by precisely one photo and the next one lands centred.
+  Same swipe, same 22% threshold, same spring — only the read left the gesture. `tools/test_suite.js` gains two
+  checks: one reads `V.w` at open (equal to the stage's own width), resizes the viewport to 380 and back to 412 and
+  reads that the cached width followed each time; the other holds the shape — the settle writes `-dir*V.w`, the
+  swipe's `end()` contains no `innerWidth`, `clientWidth`, `offsetWidth` or `getBoundingClientRect`, `measureW` reads
+  the stage, and the resize listener is added at open and removed in `closeViewer`. *(1.5.6)*
 - [ ] 57. Stop the hint timer when the viewer closes.
 - [ ] 58. Handle a 404 image in the viewer with a placeholder instead of a blank.
 - [ ] 59. Keep the viewer open if the deleted photo was not the current one.
