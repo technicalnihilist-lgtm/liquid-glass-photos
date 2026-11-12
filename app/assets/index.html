@@ -938,7 +938,7 @@ const pointNear=()=>{
 };
 function openViewer(list,i){
   if(i<0)return;
-  V={list,i,zoom:1,tx:0,ty:0,last:0};
+  V={list,i,zoom:1,tx:0,ty:0,last:0,hintT:0};
   const el=document.createElement('div');el.className='viewer';
   el.innerHTML=`<div class="vbg"></div><div class="stage"><div class="track"></div></div>
   <div class="vtop"><button class="rbtn glass" data-v="close">${I.back}</button><div class="mid glass"><b></b><span></span></div><button class="rbtn glass" data-v="info">${I.info}</button></div>
@@ -1077,11 +1077,14 @@ function build(keepTrack,dir){
   $('.vbar',el).innerHTML=t?
     `<button data-v="restore">${I.restore}</button><button data-v="purge">${I.trash}</button>`:
     `<button data-v="share">${I.share}</button><button class="heart ${p.fav?'on':''}" data-v="fav">${I.heart}</button><button data-v="del">${I.trash}</button>`;
-  setTimeout(()=>{const h=$('.hint',el);if(h)h.style.display='none'},3500);
+  /* the hint is hidden once per viewer, and the timer is owned by V so that closing the viewer
+     cancels it: before this the 3.5 s callback outlived the viewer and ran against the node
+     closeViewer had already removed, and every rebuild armed another one */
+  if(!V.hintT)V.hintT=setTimeout(()=>{const h=$('.hint',el);if(h)h.style.display='none';if(V)V.hintT=0},3500);
   armRelease();
 }
 function closeViewer(){
-  const el=V&&V.el;if(!el)return;const sl=V.slides;if(V.detach)V.detach();V=null;clearTimeout(relT);
+  const el=V&&V.el;if(!el)return;const sl=V.slides;if(V.detach)V.detach();clearTimeout(V.hintT);V=null;clearTimeout(relT);
   el.style.transition='opacity .3s,transform .4s cubic-bezier(.4,0,.2,1)';el.style.opacity=0;el.style.transform='scale(.92)';
   /* the viewer is gone from the screen before its three bitmaps are dropped, so the fade still
      shows the photo it was showing */
