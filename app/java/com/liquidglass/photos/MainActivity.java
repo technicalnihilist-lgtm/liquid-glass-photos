@@ -30,6 +30,7 @@ import android.provider.MediaStore;
 import android.util.Log;
 import android.util.Size;
 import android.view.View;
+import android.view.ViewConfiguration;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowInsets;
@@ -1343,6 +1344,9 @@ public class MainActivity extends Activity {
                 o.put("insetTop", insetTop);
                 o.put("insetBottom", insetBottom);
                 o.put("light", prefs.getBoolean("light", false));
+                /* the page debounces its double tap on the system's own window instead of a
+                   number of its own: 300 ms stock, changed by accessibility and OEM skins */
+                o.put("dblTap", ViewConfiguration.getDoubleTapTimeout());
             } catch (Exception ignored) {}
             return o.toString();
         }
