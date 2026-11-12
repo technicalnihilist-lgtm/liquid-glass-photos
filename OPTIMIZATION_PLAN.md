@@ -247,7 +247,20 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
   other holds the shape — `snapZoom()` resets the zoom and the translation and clears the transform, the swipe calls
   it before `build()`, the delete and the restore both call it, and no inline `V.zoom=1;V.tx=V.ty=0` is left in the
   swipe path. *(1.5.4)*
-- [ ] 55. Debounce double-tap detection to the system double-tap timeout.
+- [x] 55. Debounce double-tap detection to the system double-tap timeout — done: the viewer measured a double
+  tap with a hard-coded 320 ms of its own (`if(now-V.last<320)`), so the answer disagreed with the system in both
+  directions — a pair the platform calls two separate taps (300 ms stock, longer under accessibility services and
+  some OEM skins) still zoomed, and on a device whose window is longer than 320 ms a pair the platform calls one
+  double tap was refused. `Bridge.meta()` now reports `ViewConfiguration.getDoubleTapTimeout()` and the page reads
+  it once into `DBL_MS` (300 ms only as the browser-harness fallback, where there is no bridge), and the tap branch
+  compares against that instead of the literal. The pair is also broken by anything that is not a tap: a swipe or a
+  pan clears `V.last`, so tap-pan-tap a few milliseconds apart is three gestures and no longer toggles the zoom back
+  off; and once a pair has fired `V.last` is left at 0, so the next tap starts a fresh pair instead of completing
+  the old one. Same 2.4x zoom, same pop, same pan, same swipe — only the moment a tap counts as a double tap moved.
+  `tools/test_suite.js` gains two checks: one drives real pointer taps on the stage and reads 1x for taps 420 ms
+  apart, 2.4x for taps 60 ms apart and 2.4x across a tap-pan-tap; the other holds the shape — `DBL_MS` from
+  `META.dblTap` with a 300 fallback, the branch comparing against `DBL_MS`, no literal left, and the other
+  gestures clearing the pair. *(1.5.5)*
 - [ ] 56. Avoid layout thrash on swipe by pre-measuring the width.
 - [ ] 57. Stop the hint timer when the viewer closes.
 - [ ] 58. Handle a 404 image in the viewer with a placeholder instead of a blank.
