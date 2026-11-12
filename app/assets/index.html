@@ -146,6 +146,7 @@ body.light .vbg{background:#f4f4f8}
 .track{position:absolute;inset:0;will-change:transform}
 .slide{position:absolute;top:0;width:100%;height:100%;display:grid;place-items:center;padding:calc(var(--sat) + 70px) 0 calc(var(--sab) + 100px)}
 .slide img{max-width:100%;max-height:100%;object-fit:contain;display:block;pointer-events:none;transition:transform .35s cubic-bezier(.25,1.2,.45,1);border-radius:4px}
+.slide img.miss{width:72px;height:72px;object-fit:contain;opacity:.42}
 .vtop{position:absolute;top:calc(var(--sat) + 10px);left:14px;right:14px;z-index:3;display:flex;align-items:center;justify-content:space-between;background:none!important;border:0!important;box-shadow:none!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
 .vtop::after{display:none}
 .vtop .mid{padding:8px 18px;border-radius:24px;text-align:center;font-size:13px;line-height:1.25}
@@ -921,6 +922,14 @@ let relT=0;
    build nothing is moving), and they are pointed again the moment a finger lands on the stage:
    the photo that is about to slide in starts loading before the gesture has even been read, and
    the centre slide is never touched, so the photo on screen never blinks. */
+/* a full-size fetch can fail: the photo was deleted or moved on disk behind the app's back, so
+   /media/<id> answers 404 and the img simply painted nothing — a black rectangle where a photo
+   should be, with the day, the time and the action bar still around it. The slide now falls back
+   to an inline broken-image placeholder that keeps the slide's box and its gestures, and the id
+   that failed is remembered on the node so a rebuild of the same photo does not fire the 404
+   again; pointing the slide at another id clears it and the real photo comes back. */
+const MISS_SRC='data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96"><rect x="14" y="26" width="68" height="46" rx="7" fill="none" stroke="#fff" stroke-width="3"/><path d="M22 64l15-17 11 13 8-9 14 13" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><path d="M16 80L80 16" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/></svg>');
+const showMiss=(im)=>{im.classList.add('miss');if(im.getAttribute('src')!==MISS_SRC)im.src=MISS_SRC};
 const releaseOffscreen=()=>{
   if(!V||!V.slides)return;
   V.slides.forEach(d=>{if(d.hasAttribute('data-c'))return;const im=d.firstChild;if(im&&im.getAttribute('src'))im.removeAttribute('src')});
@@ -933,7 +942,9 @@ const pointNear=()=>{
     if(idx===1)return;
     const p=byId(V.list[V.i+idx-1]);if(!p)return;
     const src=p.local?p.src:fullSrc(p),im=d.firstChild;
-    if(im&&im.getAttribute('src')!==src)im.src=src;
+    if(!im)return;
+    if(d.dataset.bad===src)showMiss(im);
+    else{im.classList.remove('miss');if(im.getAttribute('src')!==src)im.src=src}
   });
 };
 function openViewer(list,i){
@@ -1045,6 +1056,11 @@ function build(keepTrack,dir){
     V.slides=[-1,0,1].map(k=>{
       const d=document.createElement('div');d.className='slide';d.style.left=(k*100)+'%';
       const im=document.createElement('img');im.alt='';
+      im.addEventListener('error',()=>{
+        const s=im.getAttribute('src');
+        if(!s||s===MISS_SRC)return;
+        d.dataset.bad=s;showMiss(im);
+      });
       d.append(im);track.append(d);return d;
     });
   }
@@ -1063,7 +1079,11 @@ function build(keepTrack,dir){
       d.style.display='';
       const src=p.local?p.src:fullSrc(p);
       const im=d.firstChild;
-      if(im.getAttribute('src')!==src)im.src=src;
+      /* the photo this slide already failed to fetch is not asked for again: the placeholder it
+         is showing is the answer a rebuild would get too, and a rebuild runs on every swipe,
+         favourite and delete */
+      if(d.dataset.bad===src)showMiss(im);
+      else{im.classList.remove('miss');if(im.getAttribute('src')!==src)im.src=src}
       im.style.transform='';im.style.transition='';
       if(idx===1){
         if(d.hasAttribute('data-c')){d.removeAttribute('data-c');void d.offsetWidth}
