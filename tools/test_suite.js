@@ -76,6 +76,9 @@ function check(name, ok, detail) {
 (async () => {
   const thumbHits = { total: 0, bad: 0 };
   let currentStub = stubFor(library(COUNT), 'true');
+  /* ids whose full-size fetch must answer 404, the way the native client does for a photo that
+     was deleted or moved on disk behind the app's back */
+  const missMedia = new Set();
 
   const server = http.createServer((req, res) => {
     const url = (req.url || '/').split('?')[0];
@@ -92,6 +95,11 @@ function check(name, ok, detail) {
       return;
     }
     if (/^\/media\/\d+$/.test(url)) {
+      if (missMedia.has(Number(url.slice(7)))) {
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
+        res.end();
+        return;
+      }
       res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Content-Length': THUMB.length });
       res.end(THUMB);
       return;
@@ -849,6 +857,82 @@ function check(name, ok, detail) {
     /V\.hintT=setTimeout/.test(hintFn) && /V\.hintT=0/.test(hintFn) &&
     /if\(V\.detach\)V\.detach\(\);clearTimeout\(V\.hintT\);V=null/.test(viewerHtml) &&
     !/setTimeout\(\(\)=>\{const h=\$\(\'\.hint\',el\);if\(h\)h\.style\.display=\'none\'\},3500\)/.test(viewerHtml));
+
+  /* 8g. a photo whose full-size fetch 404s shows the placeholder in the viewer instead of an
+         empty slide, and the placeholder gives way to the real photo once it loads again. */
+  const missPage = await browser.newPage();
+  missPage.on('pageerror', (e) => errors.push(String(e && e.message)));
+  await missPage.setCacheEnabled(false);
+  await missPage.goto(base, { waitUntil: 'load' });
+  await missPage.waitForFunction((n) => document.querySelectorAll('.tile').length === n, { timeout: 30000 }, COUNT);
+  const missId = await missPage.$eval('.tile img', (i) => Number(i.getAttribute('src').split('/').pop()));
+  missMedia.add(missId);
+  await missPage.click('.tile');
+  await missPage.waitForSelector('.viewer .slide[data-c] img', { timeout: 10000 });
+  await missPage.waitForFunction(() => {
+    const im = document.querySelector('.viewer .slide[data-c] img');
+    return !!im && /^data:image\/svg\+xml/.test(im.getAttribute('src') || '');
+  }, { timeout: 10000 });
+  const missState = await missPage.evaluate(() => {
+    const im = document.querySelector('.viewer .slide[data-c] img');
+    const sl = document.querySelector('.viewer .slide[data-c]');
+    return {
+      placeholder: /^data:image\/svg\+xml/.test(im.getAttribute('src') || ''),
+      marked: im.classList.contains('miss'),
+      sized: Math.round(im.getBoundingClientRect().width),
+      centre: !!sl,
+      viewer: document.querySelectorAll('.viewer').length,
+      title: (document.querySelector('.viewer .mid b') || {}).textContent || '',
+    };
+  });
+  check('a 404 full-size fetch paints the placeholder in the viewer (id ' + missId +
+    ', placeholder ' + missState.placeholder + ', marked ' + missState.marked +
+    ', ' + missState.sized + 'px, slide centred ' + missState.centre +
+    ', viewer ' + missState.viewer + ')',
+    missState.placeholder === true && missState.marked === true && missState.sized > 0 &&
+    missState.sized < 200 && missState.centre === true && missState.viewer === 1 &&
+    missState.title.length > 0);
+  /* the same photo, now readable: closing and re-opening the viewer must fetch it again and show
+     the real image, with the placeholder's class and the remembered bad src both gone */
+  missMedia.delete(missId);
+  await missPage.click('[data-v="close"]');
+  await missPage.waitForFunction(() => !document.querySelector('.viewer'), { timeout: 10000 });
+  await missPage.click('.tile');
+  await missPage.waitForFunction(() => {
+    const im = document.querySelector('.viewer .slide[data-c] img');
+    return !!im && /^\/media\/\d+$/.test(im.getAttribute('src') || '') && im.complete && im.naturalWidth > 0;
+  }, { timeout: 15000 });
+  const missBack = await missPage.evaluate(() => {
+    const im = document.querySelector('.viewer .slide[data-c] img');
+    const sl = document.querySelector('.viewer .slide[data-c]');
+    return {
+      src: (im.getAttribute('src') || '').slice(0, 7),
+      marked: im.classList.contains('miss'),
+      bad: sl.hasAttribute('data-bad'),
+      natural: im.naturalWidth,
+    };
+  });
+  check('the placeholder gives way to the real photo once it loads (' + missBack.src +
+    ', marked ' + missBack.marked + ', bad src kept ' + missBack.bad + ', decoded ' +
+    missBack.natural + 'px)',
+    missBack.src === '/media/' && missBack.marked === false && missBack.bad === false &&
+    missBack.natural > 100);
+  const missDecl = (viewerHtml.match(/const MISS_SRC='data:image\/svg\+xml,'\+encodeURIComponent\([\s\S]*?\);/) || [''])[0];
+  const missHandler = (viewerHtml.match(/im\.addEventListener\('error',\(\)=>\{[\s\S]*?\}\);/) || [''])[0];
+  const missPoint = (viewerHtml.match(/const pointNear=\(\)=>\{[\s\S]*?\n\};/) || [''])[0];
+  const missBuild = (viewerHtml.match(/function build\(keepTrack,dir\)[\s\S]*?\n\}/) || [''])[0];
+  check('a failed slide keeps an inline placeholder and does not re-request the missing photo',
+    /MISS_SRC/.test(missDecl) && /data:image\/svg\+xml/.test(missDecl) &&
+    /dataset\.bad=s/.test(missHandler) && /showMiss\(im\)/.test(missHandler) &&
+    /s===MISS_SRC/.test(missHandler) &&
+    /if\(d\.dataset\.bad===src\)showMiss\(im\);/.test(missBuild) &&
+    /im\.classList\.remove\('miss'\);if\(im\.getAttribute\('src'\)!==src\)im\.src=src/.test(missBuild) &&
+    /if\(d\.dataset\.bad===src\)showMiss\(im\);/.test(missPoint) &&
+    /im\.classList\.remove\('miss'\)/.test(missPoint) &&
+    /\.slide img\.miss\{/.test(viewerHtml));
+  await missPage.click('[data-v="close"]');
+  await missPage.waitForFunction(() => !document.querySelector('.viewer'), { timeout: 10000 });
+  await missPage.close();
 
   /* 9. the grid-size setting changes the tile width */
   const w0 = await page.$eval('.tile', (t) => t.getBoundingClientRect().width);
