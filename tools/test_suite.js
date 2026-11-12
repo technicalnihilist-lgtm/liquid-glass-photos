@@ -631,7 +631,7 @@ function check(name, ok, detail) {
     /const measureW=\(\)=>\{V\.w=stage\.clientWidth\|\|innerWidth\}/.test(viewerHtml) &&
     /addEventListener\('resize',measureW\)/.test(viewerHtml) &&
     /V\.detach=\(\)=>removeEventListener\('resize',measureW\)/.test(viewerHtml) &&
-    /if\(V\.detach\)V\.detach\(\);V=null/.test(viewerHtml));
+    /if\(V\.detach\)V\.detach\(\);clearTimeout\(V\.hintT\);V=null/.test(viewerHtml));
 
   /* 8c. the two offscreen slides give their decoded bitmaps back: once a swipe has settled only
          the centre slide still carries a src, and the moment a finger lands on the stage both
@@ -807,6 +807,48 @@ function check(name, ok, detail) {
     !/320/.test(tapBranch) && /V\.last=0/.test(viewerHtml));
   await page.click('[data-v="close"]');
   await page.waitForFunction(() => !document.querySelector('.viewer'), { timeout: 10000 });
+
+  /* 8f. the hint's 3.5 s timer belongs to the viewer: it is armed once when the viewer opens
+         and cancelled by closeViewer, instead of surviving the viewer and firing against the
+         node closeViewer has already removed. */
+  await page.waitForSelector('.tile', { timeout: 10000 });
+  await page.evaluate(() => {
+    window.__hintTimers = [];
+    window.__cleared = [];
+    const st = window.setTimeout, ct = window.clearTimeout;
+    window.setTimeout = function (fn, ms) {
+      const id = st.apply(window, arguments);
+      if (ms === 3500) window.__hintTimers.push(id);
+      return id;
+    };
+    window.clearTimeout = function (id) { window.__cleared.push(id); return ct(id); };
+  });
+  await page.click('.tile');
+  await page.waitForSelector('.viewer .hint', { timeout: 10000 });
+  const hintArmed = await page.evaluate(() => ({
+    timers: window.__hintTimers.length,
+    owner: !!(V && V.hintT),
+    visible: getComputedStyle(document.querySelector('.viewer .hint')).display !== 'none',
+  }));
+  await page.click('[data-v="close"]');
+  await page.waitForFunction(() => !document.querySelector('.viewer'), { timeout: 10000 });
+  await settle(400);
+  const hintClosed = await page.evaluate(() => ({
+    cleared: window.__hintTimers.length > 0 &&
+      window.__hintTimers.every((id) => window.__cleared.includes(id)),
+    v: V === null,
+    live: document.querySelectorAll('.viewer').length,
+  }));
+  check('closing the viewer cancels the hint timer (' + hintArmed.timers + ' armed, owned by V ' +
+    hintArmed.owner + ', hint visible ' + hintArmed.visible + ', cleared ' + hintClosed.cleared +
+    ', viewer left ' + hintClosed.live + ')',
+    hintArmed.timers === 1 && hintArmed.owner === true && hintArmed.visible === true &&
+    hintClosed.cleared === true && hintClosed.v === true && hintClosed.live === 0);
+  const hintFn = (viewerHtml.match(/if\(!V\.hintT\)V\.hintT=setTimeout[\s\S]*?\},3500\);/) || [''])[0];
+  check('the hint timer is kept on V, armed once per viewer, and cleared before V is dropped',
+    /V\.hintT=setTimeout/.test(hintFn) && /V\.hintT=0/.test(hintFn) &&
+    /if\(V\.detach\)V\.detach\(\);clearTimeout\(V\.hintT\);V=null/.test(viewerHtml) &&
+    !/setTimeout\(\(\)=>\{const h=\$\(\'\.hint\',el\);if\(h\)h\.style\.display=\'none\'\},3500\)/.test(viewerHtml));
 
   /* 9. the grid-size setting changes the tile width */
   const w0 = await page.$eval('.tile', (t) => t.getBoundingClientRect().width);
