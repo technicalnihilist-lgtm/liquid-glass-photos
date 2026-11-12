@@ -13,9 +13,9 @@ A real, installable Android **photos** app — the liquid-glass UI from the orig
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.5.7, 118 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.5.8, 122 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.5.7 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.5.8 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -114,6 +114,26 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.5.8 — day 7 of the 20-day optimisation plan, fortieth pass
+No UI change, no new features. Item 58 of the plan: a photo that cannot be fetched now shows a placeholder in
+the viewer instead of an empty slide.
+- `/media/<id>` answers 404 when the photo was deleted or moved on disk behind the app's back, and the viewer's
+  `<img>` painted nothing at all — a black rectangle where a photo should be, with the day, the time and the
+  action bar still sitting around it. The slide now falls back to an inline broken-image placeholder: the same
+  `<img>` node, the same box, the same gestures, drawn small and dimmed, and the viewer stays open on the photo
+  the user asked for.
+- The id that failed is remembered on the slide node (`data-bad`), so the rebuilds that a swipe, a favourite
+  toggle or a delete already trigger do not fire the same 404 again; pointing the slide at another photo clears
+  it, and the real image comes back the moment it can be read.
+- Nothing moves for a photo that loads: the placeholder only appears after a failed fetch, and the CSS rule is
+  scoped to `.slide img.miss`.
+- `tools/test_suite.js` gains two checks: one serves a 404 for the first photo's full-size fetch, opens it and
+  reads that the centre slide paints the placeholder with the viewer still open, then lets the photo load again
+  and reads that the real image comes back; the other holds the shape — the inline placeholder constant, the
+  `error` listener that records the failed src, both the `build()` and `pointNear()` paths that skip a known-bad
+  src, and the `.slide img.miss` rule.
+- 73 checks in `tools/test_suite.js`, all PASS.
 
 ### 1.5.7 — day 7 of the 20-day optimisation plan, thirty-ninth pass
 No UI change, no new features. Item 57 of the plan: the swipe hint's timer now ends with the viewer.
