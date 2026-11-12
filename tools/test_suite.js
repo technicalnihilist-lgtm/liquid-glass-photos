@@ -736,6 +736,40 @@ function check(name, ok, detail) {
     !/V\.zoom=1;V\.tx=V\.ty=0;track/.test(viewerHtml));
   /* put the deleted photo back so the pages opened further down still see the whole library */
   await page.evaluate(() => { TRASH.clear(); saveTrash(); });
+
+  /* 8g. the double tap is debounced on the system's own window instead of a number of ours:
+         two taps 420 ms apart are two single taps (no zoom), two taps 60 ms apart still zoom, and
+         a pan between two taps breaks the pair, so the tap after it does not complete a double
+         tap — all driven with real pointer events on the stage. */
+  const tap = async () => { await page.mouse.move(cx, cy); await page.mouse.down(); await page.mouse.up(); };
+  const zoomAt = () => page.evaluate(() => V.zoom);
+  await page.evaluate(() => { V.zoom = 1; V.tx = V.ty = 0; });
+  await tap();
+  await settle(420);
+  await tap();
+  await settle(420);
+  const slowPair = await zoomAt();
+  await tap();
+  await settle(60);
+  await tap();
+  await settle(420);
+  const fastPair = await zoomAt();
+  await tap();
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  for (let i = 1; i <= 3; i++) await page.mouse.move(cx + i * 14, cy + i * 14);
+  await page.mouse.up();
+  await tap();
+  await settle(420);
+  const afterPan = await zoomAt();
+  check('double tap waits for the system window (420 ms apart -> ' + slowPair + 'x, 60 ms apart -> ' +
+    fastPair + 'x, a pan between taps -> ' + afterPan + 'x)',
+    slowPair === 1 && fastPair === 2.4 && afterPan === 2.4);
+  const dblDecl = (viewerHtml.match(/const DBL_MS=[^;]*;/) || [''])[0];
+  const tapBranch = (viewerHtml.match(/if\(!s\.mode\)\{[\s\S]*?\n {4}\}/) || [''])[0];
+  check('the tap branch uses the system double-tap timeout, and any other gesture clears the pair',
+    /META\.dblTap/.test(dblDecl) && /:300;/.test(dblDecl) && /now-V\.last<DBL_MS/.test(tapBranch) &&
+    !/320/.test(tapBranch) && /V\.last=0/.test(viewerHtml));
   await page.click('[data-v="close"]');
   await page.waitForFunction(() => !document.querySelector('.viewer'), { timeout: 10000 });
 
