@@ -115,6 +115,26 @@ The APK ships with **no** sample media — it is empty until it reads your galle
 
 ## Changelog
 
+### 1.5.6 — day 7 of the 20-day optimisation plan, thirty-eighth pass
+No UI change, no new features. Item 56 of the plan: the swipe no longer asks the layout for its width.
+- The viewer read `innerWidth` twice inside the swipe itself — once to decide whether the drag had gone far enough
+  to count (22% of the width) and once to write the translate that carries the track to the next photo. A layout
+  read that lands between the gesture's own transform writes can flush the frame it is still building, so the
+  swipe paid a read/write thrash every time it settled.
+- The width is now pre-measured: `measureW()` takes the stage's own `clientWidth` (falling back to `innerWidth`)
+  once when the viewer opens and stores it in `V.w`, and a `resize` listener refreshes it only when the window
+  actually changes size. The threshold and the settle translate read that number and nothing else, so no layout is
+  touched anywhere between a finger landing on the stage and the next photo settling.
+- The listener is removed with the viewer (`V.detach()` in `closeViewer`), so repeated open/close leaves nothing
+  registered behind it.
+- The stage is exactly one viewport wide, so the settle still moves the track by precisely one photo: same swipe,
+  same 22% threshold, same spring, same pop and plop.
+- `tools/test_suite.js` gains two checks: one reads `V.w` at open and compares it with the stage's width, resizes
+  the viewport to 380 and back to 412 and reads that the cached width followed; the other holds the shape — the
+  settle writes `-dir*V.w`, the swipe's `end()` contains no `innerWidth`, `clientWidth`, `offsetWidth` or
+  `getBoundingClientRect`, and the resize listener is added at open and removed on close.
+- 68 checks in `tools/test_suite.js`, all PASS.
+
 ### 1.5.5 — day 7 of the 20-day optimisation plan, thirty-seventh pass
 No UI change, no new features. Item 55 of the plan: the double tap is debounced on the system's own timeout.
 - The viewer decided a double tap with a hard-coded 320 ms of its own, so a tap pair the system would call two
