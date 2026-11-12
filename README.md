@@ -13,9 +13,9 @@ A real, installable Android **photos** app — the liquid-glass UI from the orig
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.5.5, 118 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.5.7, 118 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.5.5 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.5.7 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -114,6 +114,21 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.5.7 — day 7 of the 20-day optimisation plan, thirty-ninth pass
+No UI change, no new features. Item 57 of the plan: the swipe hint's timer now ends with the viewer.
+- `build()` hid the viewer's `.hint` with a bare 3.5 s `setTimeout` and kept no handle on it. Closing the viewer
+  removes the node 300 ms later, so that callback still fired against a detached element — and since `build()`
+  runs again on every swipe, favourite toggle and delete, each rebuild armed another copy of the same timer.
+- The handle is kept on the viewer now: `V.hintT` is zeroed in the `openViewer` object, `build()` arms the timer
+  only when it is not already armed, and `closeViewer` clears it beside `V.detach()` before `V` is dropped.
+- Nothing visible moves: the hint still shows on open with the same text and hides after the same 3.5 s, because
+  the timer is still armed by the first `build()` of the viewer.
+- `tools/test_suite.js` gains two checks: one wraps the page's `setTimeout`/`clearTimeout`, opens a viewer, reads
+  that exactly one 3500 ms timer was armed and owned by `V.hintT`, closes it and reads that the id was cleared,
+  `V` is null and no viewer node is left; the other holds the shape — the timer stored on `V`, re-armed only when
+  free, cleared before `V=null`, and no bare 3500 ms hint timer left in the page.
+- 70 checks in `tools/test_suite.js`, all PASS.
 
 ### 1.5.6 — day 7 of the 20-day optimisation plan, thirty-eighth pass
 No UI change, no new features. Item 56 of the plan: the swipe no longer asks the layout for its width.
