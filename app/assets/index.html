@@ -946,7 +946,16 @@ function openViewer(list,i){
   document.body.append(el);V.el=el;
   build();
   const stage=$('.stage',el),track=$('.track',el),bg=$('.vbg',el);
-  let st=null;const W=()=>innerWidth;
+  let st=null;
+  /* the width a swipe is measured against is taken once, when the viewer opens and again only
+     when the window is resized, and never inside the gesture: a pointermove or the settle that
+     read innerWidth or clientWidth between its own transform writes would flush the layout it
+     is still building. the stage is exactly one viewport wide, so the settle still moves the
+     track by precisely one photo and the next one lands centred. */
+  const measureW=()=>{V.w=stage.clientWidth||innerWidth};
+  measureW();
+  addEventListener('resize',measureW);
+  V.detach=()=>removeEventListener('resize',measureW);
   const cur=()=>$('.slide[data-c] img',el);
   const applyZ=(anim)=>{const im=cur();if(!im)return;im.style.transition=anim?'':'none';im.style.transform=`translate(${V.tx}px,${V.ty}px) scale(${V.zoom})`};
   V.applyZ=applyZ;
@@ -995,10 +1004,10 @@ function openViewer(list,i){
     }
     V.last=0;   /* a swipe or a pan breaks the pair: the next tap is a first tap */
     if(s.mode==='h'){
-      const fast=Math.abs(s.dx)/dt>.45,go=Math.abs(s.dx)>W()*.22||(fast&&Math.abs(s.dx)>30);
+      const fast=Math.abs(s.dx)/dt>.45,go=Math.abs(s.dx)>V.w*.22||(fast&&Math.abs(s.dx)>30);
       const dir=s.dx<0?1:-1,ni=V.i+dir;
       if(go&&ni>=0&&ni<V.list.length){
-        track.style.transform=`translateX(${-dir*W()}px)`;plop(.7);
+        track.style.transform=`translateX(${-dir*V.w}px)`;plop(.7);
         setTimeout(()=>{V.i=ni;snapZoom();track.style.transition='none';build(false,dir)},230);
       }else track.style.transform='translateX(0)';
     }else if(s.mode==='v'){
@@ -1072,7 +1081,7 @@ function build(keepTrack,dir){
   armRelease();
 }
 function closeViewer(){
-  const el=V&&V.el;if(!el)return;const sl=V.slides;V=null;clearTimeout(relT);
+  const el=V&&V.el;if(!el)return;const sl=V.slides;if(V.detach)V.detach();V=null;clearTimeout(relT);
   el.style.transition='opacity .3s,transform .4s cubic-bezier(.4,0,.2,1)';el.style.opacity=0;el.style.transform='scale(.92)';
   /* the viewer is gone from the screen before its three bitmaps are dropped, so the fade still
      shows the photo it was showing */
