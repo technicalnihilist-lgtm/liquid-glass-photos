@@ -288,7 +288,23 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
   and reads that the id was cleared, that `V` is null and that no viewer node is left; the other holds the shape
   — `V.hintT=setTimeout(...)` with `V.hintT=0` inside the callback, `clearTimeout(V.hintT)` before `V=null`, and
   no bare 3500 ms hint timer anywhere in the page. *(1.5.7)*
-- [ ] 58. Handle a 404 image in the viewer with a placeholder instead of a blank.
+- [x] 58. Handle a 404 image in the viewer with a placeholder instead of a blank — done: `/media/<id>` answers
+  404 when the photo was deleted or moved on disk behind the app's back, and the slide's `<img>` painted nothing
+  at all — a black rectangle where a photo should be, with the day, the time and the action bar still around it.
+  The slide now falls back to an inline broken-image placeholder (`MISS_SRC`, a data-URI SVG, so nothing new
+  ships in the APK and nothing is fetched): the same `<img>` node keeps the slide's box and its gestures, drawn
+  small and dimmed by `.slide img.miss`, and the viewer stays open on the photo the user asked for. The failed
+  src is remembered on the node (`d.dataset.bad`), so the rebuilds that a swipe, a favourite toggle or a delete
+  already trigger do not fire the same 404 again — both `build()` and `pointNear()` check it before pointing a
+  slide — and pointing that slide at another photo clears the class and sets the real src, so a readable photo
+  comes back as soon as it can be. The `error` listener is attached once, where the three slide nodes are
+  created, and ignores a missing or already-placeholder src, so the offscreen release that strips `src` cannot
+  trip it. A photo that loads is untouched: same markup, same slide, same animation. `tools/test_suite.js` gains
+  two checks: one serves a 404 for the first photo's full-size fetch, opens it and reads that the centre slide
+  paints the placeholder with the viewer still open and its title intact, then lets the photo load again and
+  reads that the real image is back and decoded; the other holds the shape — the inline placeholder constant,
+  the `error` listener that records the failed src, the `d.dataset.bad===src` guard in both `build()` and
+  `pointNear()`, and the `.slide img.miss` rule. *(1.5.8)*
 - [ ] 59. Keep the viewer open if the deleted photo was not the current one.
 - [ ] 60. Restore scroll position of the grid after closing the viewer (audit).
 
