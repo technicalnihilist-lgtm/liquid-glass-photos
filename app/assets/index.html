@@ -245,6 +245,10 @@ const FAV='<svg class="fv" viewBox="0 0 24 24" style="stroke:none"><path d="M12 
 /* ---------- native bridge ---------- */
 const N = window.AndroidNative || null;
 const META = (()=>{ try{ return N ? JSON.parse(N.meta()) : {}; }catch(e){ return {}; } })();
+/* the double tap window is the system's, not ours: the bridge reports
+   ViewConfiguration.getDoubleTapTimeout() (300 ms stock — accessibility services and OEM skins
+   change it), and 300 is the fallback for the browser harness, which has no bridge. */
+const DBL_MS=(META&&META.dblTap>0)?META.dblTap:300;
 
 /* ---------- settings ---------- */
 const DEF={clarity:78,blur:22,sound:true,vol:70,bounce:true,haptic:true,light:!!META.light,cols:3,depth:true,motion:true};
@@ -982,10 +986,14 @@ function openViewer(list,i){
     if(!st)return;const s=st;st=null;const dt=Date.now()-s.t;armRelease();
     track.style.transition='transform .5s cubic-bezier(.25,1.4,.45,1)';
     if(!s.mode){
+      /* two taps inside the window zoom; a pair that has already fired leaves V.last at 0, so a
+         third tap starts a fresh pair instead of toggling the zoom straight back */
       const now=Date.now();
-      if(now-V.last<320){V.zoom=V.zoom>1?1:2.4;V.tx=V.ty=0;applyZ(true);plop(.8)}
-      V.last=now;return;
+      if(V.last&&now-V.last<DBL_MS){V.zoom=V.zoom>1?1:2.4;V.tx=V.ty=0;applyZ(true);plop(.8);V.last=0}
+      else V.last=now;
+      return;
     }
+    V.last=0;   /* a swipe or a pan breaks the pair: the next tap is a first tap */
     if(s.mode==='h'){
       const fast=Math.abs(s.dx)/dt>.45,go=Math.abs(s.dx)>W()*.22||(fast&&Math.abs(s.dx)>30);
       const dir=s.dx<0?1:-1,ni=V.i+dir;
