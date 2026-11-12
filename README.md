@@ -13,9 +13,9 @@ A real, installable Android **photos** app — the liquid-glass UI from the orig
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.5.4, 118 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.5.5, 118 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.5.4 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.5.5 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -114,6 +114,24 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.5.5 — day 7 of the 20-day optimisation plan, thirty-seventh pass
+No UI change, no new features. Item 55 of the plan: the double tap is debounced on the system's own timeout.
+- The viewer decided a double tap with a hard-coded 320 ms of its own, so a tap pair the system would call two
+  separate taps (Android's `ViewConfiguration.getDoubleTapTimeout()` is 300 ms stock, and accessibility services
+  and some OEM skins raise it) still zoomed the photo, and a pair the system would call one tap could be read as
+  a double tap on a device whose window is longer than 320 ms.
+- The window now comes from the system: `Bridge.meta()` reports `ViewConfiguration.getDoubleTapTimeout()` and the
+  page reads it as `DBL_MS`, falling back to 300 ms only in the browser harness, where there is no bridge.
+- The pair is also broken by anything that is not a tap: a swipe or a pan now clears `V.last`, so a tap, a pan and
+  a tap a few milliseconds apart are three gestures instead of a double tap — before, that third tap toggled the
+  zoom straight back off. After a pair fires, the next tap starts a fresh pair rather than completing the old one.
+- Same 2.4x zoom, same pop, same pan, same swipe; only the moment a tap counts as a double tap changed.
+- `tools/test_suite.js` gains two checks: one drives real pointer taps on the stage and reads that two taps 420 ms
+  apart leave the photo at 1x, two taps 60 ms apart zoom to 2.4x, and a tap-pan-tap leaves it at 2.4x; the other
+  holds the shape — `DBL_MS` comes from `META.dblTap` with a 300 fallback, the tap branch compares against
+  `DBL_MS` instead of a literal, and the other gestures clear the pair.
+- 66 checks in `tools/test_suite.js`, all PASS.
 
 ### 1.5.4 — day 6 of the 20-day optimisation plan, thirty-sixth pass
 No UI change, no new features. Item 54 of the plan: the zoom snaps back to 1 when the photo changes.
