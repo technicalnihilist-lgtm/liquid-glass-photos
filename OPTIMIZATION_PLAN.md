@@ -276,7 +276,18 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
   reads that the cached width followed each time; the other holds the shape — the settle writes `-dir*V.w`, the
   swipe's `end()` contains no `innerWidth`, `clientWidth`, `offsetWidth` or `getBoundingClientRect`, `measureW` reads
   the stage, and the resize listener is added at open and removed in `closeViewer`. *(1.5.6)*
-- [ ] 57. Stop the hint timer when the viewer closes.
+- [x] 57. Stop the hint timer when the viewer closes — done: `build()` armed a bare 3.5 s `setTimeout` to hide
+  `.hint` and kept no handle on it, so the timer outlived the viewer — `closeViewer` took the node off the
+  document after 300 ms and the callback still ran half a second later against a detached element — and because
+  `build()` runs again on every swipe, favourite toggle and delete, each of those armed another copy of the same
+  timer. The handle now belongs to the viewer: `V.hintT` holds it (zeroed in the `openViewer` object), `build()`
+  arms it only when it is not already armed, so the hint still hides 3.5 s after the viewer opens and a rebuild
+  does not push that out, and `closeViewer` clears it beside `V.detach()` before `V` is dropped. Same hint, same
+  text, same 3.5 s. `tools/test_suite.js` gains two checks: one wraps the page's `setTimeout`/`clearTimeout`,
+  opens a viewer, reads that exactly one 3500 ms timer was armed and that `V.hintT` owns it, closes the viewer
+  and reads that the id was cleared, that `V` is null and that no viewer node is left; the other holds the shape
+  — `V.hintT=setTimeout(...)` with `V.hintT=0` inside the callback, `clearTimeout(V.hintT)` before `V=null`, and
+  no bare 3500 ms hint timer anywhere in the page. *(1.5.7)*
 - [ ] 58. Handle a 404 image in the viewer with a placeholder instead of a blank.
 - [ ] 59. Keep the viewer open if the deleted photo was not the current one.
 - [ ] 60. Restore scroll position of the grid after closing the viewer (audit).
