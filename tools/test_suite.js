@@ -598,6 +598,41 @@ function check(name, ok, detail) {
     /V\.slides=\[-1,0,1\]\.map/.test(buildFn) && /document\.createElement\('div'\)/.test(buildFn) &&
     !/track\.innerHTML/.test(buildFn) && /n\.push\(n\.shift\(\)\)/.test(buildFn));
 
+  /* 8bb. the width a swipe is measured against is taken once, not read during the gesture: the
+          viewer caches the stage width when it opens and refreshes it on a resize, so the settle
+          moves the track by exactly one photo without asking the layout mid-swipe. */
+  const wOpen = await page.evaluate(() => ({
+    w: V.w,
+    stage: document.querySelector('.viewer .stage').clientWidth,
+    inner: innerWidth,
+  }));
+  await page.setViewport({ width: 380, height: 915, deviceScaleFactor: 1 });
+  await settle(200);
+  const wSmall = await page.evaluate(() => ({
+    w: V.w,
+    stage: document.querySelector('.viewer .stage').clientWidth,
+  }));
+  await page.setViewport({ width: 412, height: 915, deviceScaleFactor: 1 });
+  await settle(200);
+  const wBack = await page.evaluate(() => ({
+    w: V.w,
+    stage: document.querySelector('.viewer .stage').clientWidth,
+  }));
+  check('the swipe width is pre-measured once and refreshed on a resize (' +
+    'open ' + wOpen.w + ' of stage ' + wOpen.stage + ', resized ' + wSmall.w +
+    ', restored ' + wBack.w + ')',
+    wOpen.w > 0 && wOpen.w === wOpen.stage && wOpen.w === wOpen.inner &&
+    wSmall.w === wSmall.stage && wSmall.w === 380 &&
+    wBack.w === wBack.stage && wBack.w === 412);
+  const swipeEndFn = (viewerHtml.match(/const end=\(\)=>\{[\s\S]*?\n  \};/) || [''])[0];
+  check('the swipe path never reads the layout, and the width is dropped with the viewer',
+    /V\.w\*\.22/.test(swipeEndFn) && /translateX\(\$\{-dir\*V\.w\}px\)/.test(swipeEndFn) &&
+    !/innerWidth|clientWidth|offsetWidth|getBoundingClientRect/.test(swipeEndFn) &&
+    /const measureW=\(\)=>\{V\.w=stage\.clientWidth\|\|innerWidth\}/.test(viewerHtml) &&
+    /addEventListener\('resize',measureW\)/.test(viewerHtml) &&
+    /V\.detach=\(\)=>removeEventListener\('resize',measureW\)/.test(viewerHtml) &&
+    /if\(V\.detach\)V\.detach\(\);V=null/.test(viewerHtml));
+
   /* 8c. the two offscreen slides give their decoded bitmaps back: once a swipe has settled only
          the centre slide still carries a src, and the moment a finger lands on the stage both
          neighbours are pointed at their photo again so the arrival is already loading. */
