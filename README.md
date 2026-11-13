@@ -13,9 +13,9 @@ A real, installable Android **photos** app — the liquid-glass UI from the orig
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.5.11, 122 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.5.12, 122 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.5.11 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.5.12 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -114,6 +114,23 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.5.12 — day 7 of the 20-day optimisation plan, forty-fourth pass
+No UI change, no new features. Item 62 of the plan: the thumbnail cache is handed back when the
+system asks for memory.
+- The activity now overrides `onTrimMemory` and calls `dropThumbCache()` there. The decoded-JPEG
+  cache is the largest thing the app holds that can be given back without losing anything — every
+  byte in it is either re-readable from the disk cache or re-decodable from MediaStore — so a trim
+  costs one re-decode and never a photo, a selection or a scroll offset.
+- Only real pressure drops it. `TRIM_MEMORY_UI_HIDDEN` (the user switched away, memory is fine) and
+  anything below `TRIM_MEMORY_RUNNING_LOW` are ignored, so a background/foreground round trip does
+  not empty the grid it is about to paint again. The freed size is logged once per trim.
+- The disk cache is left alone, exactly as in the `OutOfMemoryError` path: it costs no heap and is
+  still correct. No bridge method, no setting, no row, no pixel changed — `app/assets/index.html`
+  is byte-identical to 1.5.11.
+- `tools/test_suite.js` gains one check (80 now, all PASS): the override exists, it calls
+  `dropThumbCache()`, the UI-hidden and light-trim gates come before the drop, and it never
+  touches the disk cache.
 
 ### 1.5.11 — day 7 of the 20-day optimisation plan, forty-third pass
 No UI change, no new features. Item 61 of the plan: the thumbnail byte budgets now report the peak
