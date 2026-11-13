@@ -1082,6 +1082,28 @@ function check(name, ok, detail) {
     oomCatch > 0 && oomDrop > oomCatch && oomReturn > oomDrop &&
     /thumbCache\.clear\(\)/.test(dropFn) && /thumbCacheBytes = 0L/.test(dropFn));
 
+  /* 61. The byte budget has to be held, and the peak has to be visible: the memory cache keeps
+         a high-water mark next to its current size and logs it as it climbs (never per thumb),
+         the eviction pass runs before the peak is taken so the logged number is what is really
+         resident, and the disk directory — only measured at trim time — reports its own peak
+         against its own budget. Nothing here is reachable from the page: no bridge method, no
+         setting, no UI. */
+  const cacheThumbFn = (java.match(/private void cacheThumb\(long key, byte\[\] bytes\)[\s\S]*?\n    \}/) || [''])[0];
+  const trimDiskFn = (java.match(/private void trimThumbDisk\(File d\)[\s\S]*?\n    \}/) || [''])[0];
+  const evictAt = cacheThumbFn.indexOf('thumbCacheBytes > THUMB_CACHE_BYTES');
+  const peakAt = cacheThumbFn.indexOf('thumbCacheBytes > thumbCacheHighBytes');
+  const memLogAt = cacheThumbFn.indexOf('Log.i(TAG, "thumb cache high-water "');
+  const diskPeakAt = trimDiskFn.indexOf('total > thumbDiskHighBytes');
+  const diskLogAt = trimDiskFn.indexOf('Log.i(TAG, "thumb disk high-water "');
+  check('both thumbnail caches cap their bytes and log a high-water mark, never per thumbnail',
+    evictAt > 0 && peakAt > evictAt && memLogAt > peakAt &&
+    /HIGH_WATER_LOG_STEP = 1024L \* 1024/.test(java) &&
+    /thumbCacheHighBytes - thumbCacheHighLogged >= HIGH_WATER_LOG_STEP/.test(cacheThumbFn) &&
+    /THUMB_CACHE_BYTES = 12L \* 1024 \* 1024/.test(java) &&
+    diskPeakAt > 0 && diskLogAt > diskPeakAt &&
+    trimDiskFn.indexOf('total <= THUMB_DISK_BYTES') > diskLogAt &&
+    /THUMB_DISK_BYTES = 12L \* 1024 \* 1024/.test(java));
+
   /* 16. HEIC/HEIF: the platform decoder only reads it from API 28, so below that the decode path
          must refuse the row before anything is opened (no stream, no fd, no repeated attempt) and
          remember it, while on 28+ ImageDecoder is tried first and a HEIF failure is not handed to
