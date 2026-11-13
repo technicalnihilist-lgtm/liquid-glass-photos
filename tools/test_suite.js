@@ -775,7 +775,10 @@ function check(name, ok, detail) {
   check('viewer snaps the zoom on every path that changes the photo',
     /V\.zoom=1;V\.tx=V\.ty=0/.test(snapFn) && /im\.style\.transform=''/.test(snapFn) &&
     /V\.i=ni;snapZoom\(\)/.test(viewerHtml) &&
-    (viewerHtml.match(/snapZoom\(\);build\(\)/g) || []).length === 2 &&
+    /* the delete and the restore hand the stage on through dropFromViewer, which snaps the zoom
+       before it rebuilds, so both still go through snapZoom() and neither skips it */
+    /if\(V\.list\[V\.i\]!==was\)\{V\.snapZoom\(\);build\(\)\}/.test(viewerHtml) &&
+    (viewerHtml.match(/dropFromViewer\(\[p\.id\]\)/g) || []).length === 2 &&
     !/V\.zoom=1;V\.tx=V\.ty=0;track/.test(viewerHtml));
   /* put the deleted photo back so the pages opened further down still see the whole library */
   await page.evaluate(() => { TRASH.clear(); saveTrash(); });
@@ -933,6 +936,50 @@ function check(name, ok, detail) {
   await missPage.click('[data-v="close"]');
   await missPage.waitForFunction(() => !document.querySelector('.viewer'), { timeout: 10000 });
   await missPage.close();
+
+  /* 8h. a delete that names a photo other than the one on the stage leaves the viewer open on the
+         photo the user is looking at: the ids the page asked the system to delete are dropped by
+         id (the reply to the system dialog carries a count, not the ids), so the entry ahead of
+         the current one goes without the viewer moving, and only the current photo's own delete
+         hands the stage on and finally closes it. */
+  await page.evaluate(() => document.querySelectorAll('.tile')[3].click());
+  await page.waitForSelector('.viewer .slide[data-c] img', { timeout: 10000 });
+  await settle(300);
+  const keep59 = await page.evaluate(() => ({
+    id: V.list[V.i], i: V.i, len: V.list.length, ahead: V.list[0],
+    title: document.querySelector('.viewer .mid span').textContent,
+    src: document.querySelector('.viewer .slide[data-c] img').getAttribute('src'),
+  }));
+  await page.evaluate((other) => { delIds = [other]; window.__native.onDeleted(-1); }, keep59.ahead);
+  await settle(600);
+  const keptState = await page.evaluate((ahead) => ({
+    open: document.querySelectorAll('.viewer').length, v: !!V, i: V.i, id: V.list[V.i],
+    len: V.list.length, ahead: V.list.indexOf(ahead),
+    title: document.querySelector('.viewer .mid span').textContent,
+    src: document.querySelector('.viewer .slide[data-c] img').getAttribute('src'),
+    tr: document.querySelector('.viewer .slide[data-c] img').style.transform,
+  }), keep59.ahead);
+  const ownDel = await page.evaluate(() => {
+    const id = V.list[V.i];
+    dropFromViewer([id]);
+    return { open: document.querySelectorAll('.viewer').length, id: V.list[V.i], i: V.i,
+             gone: V.list.indexOf(id), len: V.list.length };
+  });
+  const emptied = await page.evaluate(() => { dropFromViewer(V.list.slice()); return { v: V === null }; });
+  await settle(400);
+  const closed59 = await page.evaluate(() => document.querySelectorAll('.viewer').length);
+  check('a delete that names another photo leaves the viewer on the photo on the stage (id ' +
+    keep59.id + ' at ' + keep59.i + ' kept, dropped ' + keep59.ahead + ' -> ' + keptState.ahead +
+    ', list ' + keep59.len + ' -> ' + keptState.len + ', viewer ' + keptState.open +
+    ', title "' + keptState.title + '", src kept ' + (keptState.src === keep59.src) +
+    ', then own delete -> ' + ownDel.id + ' at ' + ownDel.i + ', emptied -> viewer ' + closed59 + ')',
+    keep59.len > 3 && keep59.i > 0 &&
+    keptState.open === 1 && keptState.v === true &&
+    keptState.id === keep59.id && keptState.i === keep59.i - 1 &&
+    keptState.len === keep59.len - 1 && keptState.ahead === -1 &&
+    keptState.title === keep59.title && keptState.src === keep59.src && keptState.tr === '' &&
+    ownDel.open === 1 && ownDel.gone === -1 && ownDel.id !== keep59.id && ownDel.len === keptState.len - 1 &&
+    emptied.v === true && closed59 === 0);
 
   /* 9. the grid-size setting changes the tile width */
   const w0 = await page.$eval('.tile', (t) => t.getBoundingClientRect().width);
@@ -1637,6 +1684,25 @@ function check(name, ok, detail) {
     tsFn.indexOf('endDrag()') > -1 &&
     tsFn.indexOf('endDrag()') < tsFn.indexOf('pd=e.touches.length===2?dist(e.touches):0;') &&
     /touch-action:pan-y/.test(asset));
+
+  /* 50. The shape that keeps the viewer on the photo the user is looking at: a delete names its
+         ids, and dropFromViewer removes those by id — never the entry at the current index — so
+         an id ahead of the current one goes without moving the stage, the current photo's own
+         delete still hands the stage on, and only an emptied list closes the viewer. */
+  const dropVFn = (asset.match(/function dropFromViewer\(list\)\{[\s\S]*?\n\}/) || [''])[0];
+  check('the viewer drops the ids a delete names instead of the entry at the current index',
+    /const k=V\.list\.indexOf\(id\);if\(k<0\)return;/.test(dropVFn) &&
+    /V\.list\.splice\(k,1\);gone=true;/.test(dropVFn) &&
+    /if\(k<V\.i\)V\.i--;/.test(dropVFn) &&
+    /if\(!gone\)return false;/.test(dropVFn) &&
+    /if\(!V\.list\.length\)\{closeViewer\(\);return true\}/.test(dropVFn) &&
+    /if\(V\.list\[V\.i\]!==was\)\{V\.snapZoom\(\);build\(\)\}/.test(dropVFn) &&
+    !/V\.list\.splice\(V\.i,1\)/.test(asset) &&
+    /dropFromViewer\(\[p\.id\]\);toast\('Moved to Trash'/.test(asset) &&
+    /untrash\(\[p\.id\]\);dropFromViewer\(\[p\.id\]\);toast\('Restored'\)/.test(asset) &&
+    /delIds=\[p\.id\];N\.delete/.test(asset) &&
+    /const gone=delIds\|\|\[\];delIds=null;/.test(asset) &&
+    (asset.match(/dropFromViewer\(gone\);/g) || []).length === 2);
 
   await browser.close();
   server.close();
