@@ -13,9 +13,9 @@ A real, installable Android **photos** app — the liquid-glass UI from the orig
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.5.10, 122 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.5.11, 122 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.5.10 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.5.11 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -114,6 +114,24 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.5.11 — day 7 of the 20-day optimisation plan, forty-third pass
+No UI change, no new features. Item 61 of the plan: the thumbnail byte budgets now report the peak
+they reached instead of only their current size.
+- Both caches already had a 12 MB ceiling — the in-memory `LinkedHashMap` by bytes, the
+  `getCacheDir()/thumbs` directory by `THUMB_DISK_BYTES` at trim time — but nothing ever said how
+  close a run came to either. Each now keeps a high-water mark next to its current size and writes
+  it to logcat as it climbs: the memory side once per MiB (`thumb cache high-water N KB of 12288
+  KB`), the disk side on a new peak at each trim (`thumb disk high-water N KB of 12288 KB`).
+- The peak is taken *after* the eviction pass, so the number logged is what the cache is really
+  holding and never a burst that was about to be evicted. Nothing is logged per thumbnail, nothing
+  repeats a level it already logged, and no mark is reset by `dropThumbCache()`, so an OOM still
+  leaves the peak that led to it in the log.
+- Nothing here is reachable from the page: no bridge method, no setting, no row, no pixel changed.
+  `app/assets/index.html` is byte-identical to 1.5.10.
+- `tools/test_suite.js` gains one check (79 now, all PASS): the eviction pass comes before the peak
+  is read, the memory side logs through `HIGH_WATER_LOG_STEP` and never per thumb, the disk side
+  logs before it trims, and both 12 MB constants are still in place.
 
 ### 1.5.10 — day 7 of the 20-day optimisation plan, forty-second pass
 No UI change, no new features. Item 60 of the plan, an audit: the grid's scroll position survives the viewer.
