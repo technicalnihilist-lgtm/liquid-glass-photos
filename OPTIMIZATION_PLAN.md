@@ -305,7 +305,21 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
   reads that the real image is back and decoded; the other holds the shape — the inline placeholder constant,
   the `error` listener that records the failed src, the `d.dataset.bad===src` guard in both `build()` and
   `pointNear()`, and the `.slide img.miss` rule. *(1.5.8)*
-- [ ] 59. Keep the viewer open if the deleted photo was not the current one.
+- [x] 59. Keep the viewer open if the deleted photo was not the current one — done: the viewer's Delete and
+  Restore took the entry at the current index out of its list (`V.list.splice(V.i,1)`) rather than the photo the
+  action named, and it closed itself as soon as the list emptied, so a delete that arrived for another photo — or
+  any delete the system confirmed, whose reply carries a count and not the ids — could move or close a viewer that
+  was showing a photo nobody had touched. `dropFromViewer(list)` now removes the ids it is given, by id: an entry
+  ahead of the current one leaves with `V.i--` and nothing is rebuilt, so the stage keeps the same photo, the same
+  slide, the same zoom and the same title; the current photo's own delete still hands the stage on (the same
+  `V.snapZoom();build()` hand-off item 54 put there) and only a list that empties closes the viewer. The ids the
+  page asks the system to delete are remembered in `delIds`, because the Android 11+ delete dialog answers with a
+  count, and `onDeleted` drops exactly those from a viewer that is still open. Same buttons, same toasts, same
+  swipe and zoom. `tools/test_suite.js` gains two checks: one opens the viewer on a middle photo, reports a
+  confirmed delete for a photo ahead of it and reads that the viewer is still open on the same photo with its
+  title and src intact, then deletes the current photo and reads that the stage hands on and that an emptied list
+  closes the viewer; the other holds the shape — the `indexOf` lookup, the `V.i--` for entries ahead, the close
+  only on an empty list, and no `V.list.splice(V.i,1)` left in the page. *(1.5.9)*
 - [ ] 60. Restore scroll position of the grid after closing the viewer (audit).
 
 ## Day 7 — memory
