@@ -136,6 +136,16 @@ public class MainActivity extends Activity {
     private final LinkedHashMap<Long, byte[]> thumbCache =
             new LinkedHashMap<Long, byte[]>(64, 0.75f, true);
     private long thumbCacheBytes = 0L;
+    /* 61. A byte budget nobody measures is a budget nobody holds. Both thumbnail caches keep the
+       peak they have reached (the high-water mark) next to their current size, and log it as it
+       climbs — once per MiB in memory, once per trim on disk — so the number that matters when a
+       device starts to struggle (how close the app really came to the ceiling) is in logcat
+       instead of being guessed at. Nothing is logged per thumbnail and nothing is logged twice
+       for the same level. */
+    private long thumbCacheHighBytes = 0L;
+    private long thumbCacheHighLogged = 0L;
+    private long thumbDiskHighBytes = 0L;
+    private static final long HIGH_WATER_LOG_STEP = 1024L * 1024;
 
     // id -> {width, height} straight from MediaStore, so a thumbnail needs one stream open
     private final Map<Long, int[]> dimCache = Collections.synchronizedMap(new HashMap<Long, int[]>());
@@ -166,6 +176,16 @@ public class MainActivity extends Activity {
                 Map.Entry<Long, byte[]> e = it.next();
                 thumbCacheBytes -= e.getValue().length;
                 it.remove();
+            }
+            /* Measured after the eviction pass, so the number logged is what the cache is really
+               holding and never a transient burst above the cap. */
+            if (thumbCacheBytes > thumbCacheHighBytes) {
+                thumbCacheHighBytes = thumbCacheBytes;
+                if (thumbCacheHighBytes - thumbCacheHighLogged >= HIGH_WATER_LOG_STEP) {
+                    thumbCacheHighLogged = thumbCacheHighBytes;
+                    Log.i(TAG, "thumb cache high-water " + (thumbCacheHighBytes / 1024L) + " KB of "
+                            + (THUMB_CACHE_BYTES / 1024L) + " KB");
+                }
             }
         }
     }
@@ -240,6 +260,13 @@ public class MainActivity extends Activity {
         if (files == null) return;
         long total = 0L;
         for (File f : files) total += f.length();
+        /* The directory is only measured here, so this is also the one place the disk side can
+           report its high-water mark. Logged on a new peak only, so a steady cache is silent. */
+        if (total > thumbDiskHighBytes) {
+            thumbDiskHighBytes = total;
+            Log.i(TAG, "thumb disk high-water " + (total / 1024L) + " KB of "
+                    + (THUMB_DISK_BYTES / 1024L) + " KB");
+        }
         if (total <= THUMB_DISK_BYTES) return;
         Arrays.sort(files, new Comparator<File>() {
             public int compare(File a, File b) {
