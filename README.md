@@ -13,9 +13,9 @@ A real, installable Android **photos** app — the liquid-glass UI from the orig
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.5.9, 122 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.5.10, 122 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.5.9 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.5.10 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -114,6 +114,25 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.5.10 — day 7 of the 20-day optimisation plan, forty-second pass
+No UI change, no new features. Item 60 of the plan, an audit: the grid's scroll position survives the viewer.
+- Audited every way the viewer closes over a scrolled grid — the close button, the Android back button, a
+  swipe-down, a favourite toggled inside the viewer (which changes the grid key and rebuilds every tile), a
+  confirmed delete, and the search tab's results — on libraries from 60 to 400 photos, scrolled to the middle
+  and to the very bottom. Every path hands `#screen` back at the offset it had; nothing was found to fix.
+- The reason it holds is worth writing down: `openViewer()` never writes the scroller, `closeViewer()` renders
+  with `renderAll(true)`, and `renderScreen(keepScroll)` reads the offset *before* it swaps the tiles and puts it
+  back *after* the swap and after `renderResults()`, so a rebuild cannot leave the grid at the top. The one thing
+  that does move is a list that got shorter while the viewer was open (a delete), where the browser clamps the
+  offset to the new maximum — it can only clamp, never jump to the top.
+- `tools/test_suite.js` gains three checks so this cannot drift: one drives all three close paths on a fresh page
+  scrolled half way down and reads that the offset is unchanged during and after; one deletes the current photo
+  from the viewer and reads that the grid comes back near its offset and one tile shorter, never at the top; the
+  last holds the shape — `renderAll(true)` in `closeViewer`, the `y=keepScroll?sc.scrollTop:0` capture, the
+  restore after `swapIn` and `renderResults()`, no `scrollTop` write in `openViewer`, and `#screen` still the
+  `overflow-y:auto` scroller.
+- 78 checks in `tools/test_suite.js`, all PASS.
 
 ### 1.5.9 — day 7 of the 20-day optimisation plan, forty-first pass
 No UI change, no new features. Item 59 of the plan: a delete that names another photo no longer takes the
