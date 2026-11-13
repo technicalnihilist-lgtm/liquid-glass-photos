@@ -1104,6 +1104,22 @@ function check(name, ok, detail) {
     trimDiskFn.indexOf('total <= THUMB_DISK_BYTES') > diskLogAt &&
     /THUMB_DISK_BYTES = 12L \* 1024 \* 1024/.test(java));
 
+  /* 62. Memory pressure has to reach the cache the process can give back: the activity overrides
+         onTrimMemory and drops the decoded-JPEG cache there, but only when the level is real
+         pressure — a light trim and the UI-hidden callback (the user switched away, memory is
+         fine) are ignored so a background/foreground round trip does not empty the grid it is
+         about to paint again — and the disk cache is left alone, because it costs no heap. */
+  const trimFn = (java.match(/public void onTrimMemory\(int level\)[\s\S]*?\n    \}/) || [''])[0];
+  const trimHiddenAt = trimFn.indexOf('TRIM_MEMORY_UI_HIDDEN');
+  const trimLowAt = trimFn.indexOf('TRIM_MEMORY_RUNNING_LOW');
+  const trimDropAt = trimFn.indexOf('dropThumbCache()');
+  check('native onTrimMemory drops the thumbnail cache under real memory pressure',
+    /@Override\s*\n\s*public void onTrimMemory\(int level\)/.test(java) &&
+    /import android\.content\.ComponentCallbacks2;/.test(java) &&
+    /super\.onTrimMemory\(level\)/.test(trimFn) &&
+    trimHiddenAt > 0 && trimLowAt > trimHiddenAt && trimDropAt > trimLowAt &&
+    !/trimThumbDisk|\.delete\(/.test(trimFn));
+
   /* 16. HEIC/HEIF: the platform decoder only reads it from API 28, so below that the decode path
          must refuse the row before anything is opened (no stream, no fd, no repeated attempt) and
          remember it, while on 28+ ImageDecoder is tried first and a HEIF failure is not handed to
