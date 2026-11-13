@@ -13,9 +13,9 @@ A real, installable Android **photos** app — the liquid-glass UI from the orig
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.5.8, 122 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.5.9, 122 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.5.8 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.5.9 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -114,6 +114,27 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.5.9 — day 7 of the 20-day optimisation plan, forty-first pass
+No UI change, no new features. Item 59 of the plan: a delete that names another photo no longer takes the
+viewer off the photo the user is looking at.
+- The viewer's Delete and Restore removed the entry at the current index (`V.list.splice(V.i,1)`) instead of the
+  photo the action named, and it closed itself the moment its list emptied — so a delete that arrived for some
+  other photo, and every confirmed system delete, could move or close a viewer that was showing a photo nobody
+  had touched.
+- `dropFromViewer(list)` now removes the ids it is given, by id: an entry ahead of the current one goes without
+  the viewer moving off the photo on the stage — nothing is rebuilt, so the slide, its zoom and its title stay
+  exactly as they were — the current photo's own delete still hands the stage on with the zoom snapped back, and
+  only a list that empties closes the viewer.
+- The ids the page asks the system to delete are kept in `delIds`, because the reply to the Android 11+ delete
+  dialog carries a count rather than the ids; `onDeleted` drops exactly those from a viewer that is still open.
+- Same buttons, same toasts, same swipe and zoom behaviour — only which entry leaves the viewer's list changed.
+- `tools/test_suite.js` gains two checks: one opens the viewer on a middle photo, reports a confirmed delete for
+  a photo ahead of it and reads that the viewer is still open on the same photo with its title and src intact,
+  then deletes the current photo and reads that the stage hands on and that an emptied list closes the viewer;
+  the other holds the shape — the id lookup, the `V.i--` for entries ahead, the close only on an empty list, and
+  no `V.list.splice(V.i,1)` left anywhere.
+- 75 checks in `tools/test_suite.js`, all PASS.
 
 ### 1.5.8 — day 7 of the 20-day optimisation plan, fortieth pass
 No UI change, no new features. Item 58 of the plan: a photo that cannot be fetched now shows a placeholder in
