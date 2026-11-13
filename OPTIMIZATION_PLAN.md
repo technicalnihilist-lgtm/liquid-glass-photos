@@ -320,7 +320,19 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
   title and src intact, then deletes the current photo and reads that the stage hands on and that an emptied list
   closes the viewer; the other holds the shape — the `indexOf` lookup, the `V.i--` for entries ahead, the close
   only on an empty list, and no `V.list.splice(V.i,1)` left in the page. *(1.5.9)*
-- [ ] 60. Restore scroll position of the grid after closing the viewer (audit).
+- [x] 60. Restore scroll position of the grid after closing the viewer (audit) — audited: it already holds, so
+  nothing was changed in the page. Every close path was driven over a scrolled grid — the close button, the
+  Android back button, a swipe-down, a favourite toggled inside the viewer (which changes `gridKey`, so the whole
+  grid is rebuilt), a confirmed delete from the viewer, and the search tab's results — on libraries of 60 and 400
+  photos, scrolled to the middle and to the bottom. Each one hands `#screen` back at the offset it had. The shape
+  that makes it so: `openViewer()` never touches the scroller, `closeViewer()` re-renders with
+  `renderAll(true)`, and `renderScreen(keepScroll)` captures `y=sc.scrollTop` before `swapIn()` and writes
+  `sc.scrollTop=y` back after the swap and after `renderResults()`. The only movement is a list that got shorter
+  while the viewer was open, where the browser clamps the offset to the new maximum — it can clamp, never jump to
+  the top. `tools/test_suite.js` gains three checks (78 total): the three close paths keep the offset, a delete
+  from the viewer leaves the grid near its offset and one tile shorter, and the shape above is held — no
+  `scrollTop` write in `openViewer()`, `renderAll(true)` in `closeViewer()`, the restore after the swap and after
+  `renderResults()`, and `#screen` still the `overflow-y:auto` scroller. *(1.5.10)*
 
 ## Day 7 — memory
 
