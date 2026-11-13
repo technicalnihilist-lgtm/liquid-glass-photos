@@ -3,6 +3,7 @@ package com.liquidglass.photos;
 import android.Manifest;
 import android.app.Activity;
 import android.app.PendingIntent;
+import android.content.ComponentCallbacks2;
 import android.content.ContentResolver;
 import android.content.ContentUris;
 import android.content.ContentValues;
@@ -1653,6 +1654,28 @@ public class MainActivity extends Activity {
         super.onPause();
         stopTilt();
         if (web != null) web.onPause();
+    }
+
+    /* 62. Android tells the process when memory is getting tight, and the decoded-JPEG cache is
+       the largest thing this app holds that can be given back without losing anything: every
+       byte in it is either re-readable from the disk cache or re-decodable from MediaStore, so
+       dropping it costs one re-decode and never a photo, a selection or a scroll position.
+       Only real pressure drops it — a light trim and the UI-hidden callback (the user switched
+       away, memory is fine) are left alone, so a background/foreground round trip does not throw
+       away the grid it is about to paint again. The disk cache is untouched, exactly as in the
+       OutOfMemoryError path: it costs no heap and is still correct. Nothing here is reachable
+       from the page — no bridge method, no setting, no page change. */
+    @Override
+    public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        if (level == ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) return;
+        if (level < ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) return;
+        long held;
+        synchronized (thumbCache) {
+            held = thumbCacheBytes;
+        }
+        dropThumbCache();
+        Log.i(TAG, "thumb cache dropped on trim " + level + ", freed " + (held / 1024L) + " KB");
     }
 
     @Override
