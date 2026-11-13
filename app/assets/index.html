@@ -815,7 +815,7 @@ scr.addEventListener('touchmove',e=>{
 },{passive:false});
 
 /* ---------- actions ---------- */
-let undoIds=null,toastT=null;
+let undoIds=null,toastT=null,delIds=null;
 function toast(msg,undo){
   const t=$('#toast');t.innerHTML=`<span>${msg}</span>${undo?'<button data-act="undo">Undo</button>':''}`;
   t.classList.add('in');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('in'),undo?5000:2200);
@@ -854,7 +854,7 @@ document.addEventListener('click',e=>{
   else if(a==='share'){const l=ids();if(l.length)share(l)}
   else if(a==='del'){const l=ids();if(!l.length)return;trash(l);undoIds=l;S.selMode=false;S.sel.clear();renderAll(true);toast(l.length+' moved to Trash',true)}
   else if(a==='restore'){const l=ids();untrash(l);S.selMode=false;S.sel.clear();renderAll(true);toast('Restored')}
-  else if(a==='purge'){const l=ids();if(!l.length)return;if(N&&N.delete){try{N.delete(JSON.stringify(l))}catch(err){}}else{untrash(l);renderAll(true)}}
+  else if(a==='purge'){const l=ids();if(!l.length)return;if(N&&N.delete){delIds=l;try{N.delete(JSON.stringify(l))}catch(err){delIds=null}}else{untrash(l);renderAll(true)}}
   else if(a==='undo'){if(undoIds){untrash(undoIds);undoIds=null;renderAll(true);$('#toast').classList.remove('in')}}
 });
 $('#file').addEventListener('change',e=>{
@@ -1035,18 +1035,38 @@ function openViewer(list,i){
       case 'info':openInfo(p);break;
       case 'fav':setFavs([p.id],!p.fav);build(true);break;
       case 'share':share([p.id]);break;
-      case 'del':{
-        trash([p.id]);undoIds=[p.id];
-        V.list.splice(V.i,1);
-        if(!V.list.length){closeViewer()}else{V.i=Math.min(V.i,V.list.length-1);snapZoom();build()}
-        toast('Moved to Trash',true);break;
-      }
-      case 'restore':{untrash([p.id]);V.list.splice(V.i,1);if(!V.list.length)closeViewer();else{V.i=Math.min(V.i,V.list.length-1);snapZoom();build()}toast('Restored');break}
-      case 'purge':{if(N&&N.delete){N.delete(JSON.stringify([p.id]))}break}
+      /* every one of these names the ids it is acting on and leaves the list to dropFromViewer,
+         so a delete that names a photo other than the one on the stage can never take the
+         viewer off it */
+      case 'del':{if(!p)break;trash([p.id]);undoIds=[p.id];delIds=[p.id];dropFromViewer([p.id]);toast('Moved to Trash',true);break}
+      case 'restore':{if(!p)break;untrash([p.id]);dropFromViewer([p.id]);toast('Restored');break}
+      case 'purge':{if(!p)break;if(N&&N.delete){delIds=[p.id];N.delete(JSON.stringify([p.id]))}break}
     }
   });
 }
 const pid=()=>byId(V.list[V.i]);
+/* A delete does not always name the photo on the stage. The system's confirm dialog comes back
+   as a count rather than the ids, the grid deletes a whole selection, and a request can be
+   answered after the viewer has moved on — so the viewer drops the ids it is told about, by id,
+   instead of whatever happens to sit at the current index. An entry ahead of the current one
+   leaves without the viewer moving off the photo the user is looking at (nothing is rebuilt, so
+   the stage keeps its zoom and its slide), the current photo's own delete hands the stage on,
+   and only a list that empties closes the viewer. */
+function dropFromViewer(list){
+  if(!V||!list||!list.length)return false;
+  const was=V.list[V.i];
+  let gone=false;
+  list.forEach(id=>{
+    const k=V.list.indexOf(id);if(k<0)return;   /* not in this viewer: nothing of it to drop */
+    V.list.splice(k,1);gone=true;
+    if(k<V.i)V.i--;                             /* the same photo stays current */
+  });
+  if(!gone)return false;                        /* the photo on the stage did not go */
+  if(!V.list.length){closeViewer();return true}
+  V.i=Math.min(V.i,V.list.length-1);
+  if(V.list[V.i]!==was){V.snapZoom();build()}   /* the stage changes hands, so the zoom goes with it */
+  return true;
+}
 function build(keepTrack,dir){
   const el=V.el,track=$('.track',el);
   /* the three slide nodes are created once per viewer and then reused: a swipe only rotates
@@ -1133,16 +1153,20 @@ window.__native={
     else if(n===0){}
   },
   onDeleted(n){
+    /* the ids this page asked the system to delete: the reply carries a count, not the ids, and
+       a viewer still open must drop those and nothing else */
+    const gone=delIds||[];delIds=null;
     if(n===0){toast('Could not delete');return}
     // -1 means the system dialog confirmed deletion
     if(n<0){
       S.sel.forEach(id=>{TRASH.delete(id)});
-      const idsNow=[...S.sel];
       saveTrash();
       S.selMode=false;S.sel.clear();
+      dropFromViewer(gone);
       toast('Deleted');
       setTimeout(loadLibrary,400);
     }else{
+      dropFromViewer(gone);
       toast(n+' deleted');
       setTimeout(loadLibrary,400);
     }
