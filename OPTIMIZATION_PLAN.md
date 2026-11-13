@@ -346,7 +346,16 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
   leaves the peak that caused it in the log. No bridge method, no setting, no page change: `app/assets/index.html` is
   byte-identical to 1.5.10. `tools/test_suite.js` gains one check (79 total) holding the eviction-then-peak order, the
   log gate, the disk log ahead of the trim, and both 12 MB constants. *(1.5.11)*
-- [ ] 62. Drop the thumbnail cache on `onTrimMemory`.
+- [x] 62. Drop the thumbnail cache on `onTrimMemory` — done: the activity overrides `onTrimMemory` and calls
+  `dropThumbCache()` there, so the decoded-JPEG cache is handed back the moment the system reports pressure. Every
+  byte in it is re-readable from the disk cache or re-decodable from MediaStore, so a trim costs one re-decode and
+  never a photo, a selection or a scroll offset. Only real pressure drops it: `TRIM_MEMORY_UI_HIDDEN` (the user
+  switched away, memory is fine) and anything below `TRIM_MEMORY_RUNNING_LOW` return before the drop, so a
+  background/foreground round trip does not empty the grid it is about to paint again. The bytes freed are logged
+  once per trim. The disk cache is left alone, as in the `OutOfMemoryError` path — it costs no heap and is still
+  correct. No bridge method, no setting, no page change: `app/assets/index.html` is byte-identical to 1.5.11.
+  `tools/test_suite.js` gains one check (80 total) holding the override, the `dropThumbCache()` call, the two gates
+  ahead of it, and the absence of any disk-cache work inside it. *(1.5.12)*
 - [ ] 63. Avoid holding `Bitmap` references in listeners.
 - [ ] 64. Check the WebView does not retain the bridge after `destroy()`.
 - [ ] 65. Free the media list when the app goes to the background for a long time.
