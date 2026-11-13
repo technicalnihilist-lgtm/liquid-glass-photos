@@ -336,7 +336,16 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
 
 ## Day 7 — memory
 
-- [ ] 61. Cap the total thumbnail bytes and log the high-water mark.
+- [x] 61. Cap the total thumbnail bytes and log the high-water mark — done: both budgets were already there (12 MB
+  in memory, `THUMB_CACHE_BYTES`, evicted by bytes in `cacheThumb`; 12 MB on disk, `THUMB_DISK_BYTES`, trimmed in
+  `trimThumbDisk`), so the work was making the ceiling observable and proving it is held. Each cache now carries a
+  high-water mark (`thumbCacheHighBytes`, `thumbDiskHighBytes`) beside its current size and logs it to logcat as it
+  climbs — once per MiB on the memory side, gated by `HIGH_WATER_LOG_STEP`, and on a new peak at each trim on the disk
+  side. The memory peak is read *after* the eviction pass, so the logged number is what the cache really holds and
+  never a burst that was about to be dropped; `dropThumbCache()` deliberately does not reset the mark, so an OOM
+  leaves the peak that caused it in the log. No bridge method, no setting, no page change: `app/assets/index.html` is
+  byte-identical to 1.5.10. `tools/test_suite.js` gains one check (79 total) holding the eviction-then-peak order, the
+  log gate, the disk log ahead of the trim, and both 12 MB constants. *(1.5.11)*
 - [ ] 62. Drop the thumbnail cache on `onTrimMemory`.
 - [ ] 63. Avoid holding `Bitmap` references in listeners.
 - [ ] 64. Check the WebView does not retain the bridge after `destroy()`.
