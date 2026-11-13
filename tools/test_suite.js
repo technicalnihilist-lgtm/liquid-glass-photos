@@ -1704,6 +1704,100 @@ function check(name, ok, detail) {
     /const gone=delIds\|\|\[\];delIds=null;/.test(asset) &&
     (asset.match(/dropFromViewer\(gone\);/g) || []).length === 2);
 
+  /* 51. The grid keeps the place the user scrolled to when the viewer opens over it and closes
+         again. Every path that closes the viewer — the close button, the native back, and a
+         favourite toggled inside the viewer, which changes the grid key and so rebuilds every
+         tile — must hand the scroller back at the offset it had, not at the top. The check
+         drives each one on a fresh page, scrolled half way down a library of COUNT photos. */
+  const scrollPage = await browser.newPage();
+  scrollPage.on('pageerror', (e) => errors.push(String(e && e.message)));
+  await scrollPage.setCacheEnabled(false);
+  await scrollPage.goto(base, { waitUntil: 'load' });
+  await scrollPage.waitForFunction((n) => document.querySelectorAll('.tile').length === n, { timeout: 30000 }, COUNT);
+  const scrollTo = (y) => scrollPage.evaluate((v) => {
+    const sc = document.querySelector('#screen');
+    sc.scrollTop = v === null ? Math.round(sc.scrollHeight / 2) : v;
+    return sc.scrollTop;
+  }, y);
+  const scrollNow = () => scrollPage.evaluate(() => document.querySelector('#screen').scrollTop);
+  /* the tile a finger would hit: fully inside the scroller, away from both bars */
+  const tapMiddleTile = () => scrollPage.evaluate(() => {
+    const sc = document.querySelector('#screen'), r = sc.getBoundingClientRect();
+    const t = [...document.querySelectorAll('.tile')].find((x) => {
+      const q = x.getBoundingClientRect();
+      return q.top > r.top + 140 && q.bottom < r.bottom - 140;
+    });
+    if (!t) return null;
+    t.click();
+    return t.dataset.id;
+  });
+  /* a tap that lands while the page is still settling is retried rather than waited on */
+  const tapForViewer = async (label) => {
+    let id = await tapMiddleTile();
+    if (id === null) { await settle(300); id = await tapMiddleTile(); }
+    if (id === null) throw new Error('no tile to tap for ' + label);
+    await scrollPage.waitForSelector('.viewer .slide[data-c] img', { timeout: 20000 });
+    return id;
+  };
+  const runScroll = async (close) => {
+    const y0 = await scrollTo(null);
+    const id = await tapForViewer('the scroll check');
+    const during = await scrollNow();
+    await close();
+    await scrollPage.waitForFunction(() => !document.querySelector('.viewer'), { timeout: 20000 });
+    await settle(500);
+    const after = await scrollNow();
+    return { y0, id, during, after };
+  };
+  const byButton = await runScroll(() => scrollPage.evaluate(() => document.querySelector('.viewer [data-v="close"]').click()));
+  const byBack = await runScroll(() => scrollPage.evaluate(() => {
+    const handled = window.__native.back();
+    if (!handled) throw new Error('back() did not take the viewer');
+  }));
+  const byFav = await runScroll(() => scrollPage.evaluate(() => {
+    document.querySelector('.viewer [data-v="fav"]').click();
+    document.querySelector('.viewer [data-v="close"]').click();
+  }));
+  const scrolledPastTop = (r) => r.y0 > 0 && r.id !== null && r.during === r.y0 && r.after === r.y0;
+  check('closing the viewer hands the grid back at the scroll offset it had (' +
+    [byButton.y0, byBack.y0, byFav.y0].join('/') + ' px kept)',
+    scrolledPastTop(byButton) && scrolledPastTop(byBack) && scrolledPastTop(byFav) &&
+    byFav.y0 === byButton.y0);
+  /* a rebuild that shortens the list can only clamp, never jump to the top */
+  const beforeDel = await scrollPage.evaluate(() => ({
+    before: document.querySelector('#screen').scrollTop,
+    tiles: document.querySelectorAll('.tile').length,
+  }));
+  await tapForViewer('the delete check');
+  await scrollPage.evaluate(() => document.querySelector('.viewer [data-v="del"]').click());
+  await settle(200);
+  await scrollPage.evaluate(() => window.__native.onDeleted(-1));
+  await settle(900);
+  /* the list still holds photos, so the viewer hands the stage on and stays open */
+  await scrollPage.evaluate(() => { const b = document.querySelector('.viewer [data-v="close"]'); if (b) b.click(); });
+  await scrollPage.waitForFunction(() => !document.querySelector('.viewer'), { timeout: 20000 });
+  await settle(400);
+  const afterDelY = await scrollNow();
+  check('a delete from the viewer leaves the grid near its offset, never at the top',
+    afterDelY > 0 && afterDelY <= beforeDel.before && (await scrollPage.evaluate(() => document.querySelectorAll('.tile').length)) === beforeDel.tiles - 1);
+  await scrollPage.close();
+
+  /* 52. The shape that keeps it: the viewer never writes the grid's scroll, closing it renders
+         with keepScroll, and renderScreen puts the offset back after the swap rather than
+         before it — so a rebuild cannot leave the grid at the top. */
+  const closeFn52 = (asset.match(/function closeViewer\(\)\{[\s\S]*?\n\}/) || [''])[0];
+  const screenFn52 = (asset.match(/function renderScreen\(keepScroll=true\)\{[\s\S]*?\n\}/) || [''])[0];
+  const openFn52 = (asset.match(/function openViewer\(list,i\)\{[\s\S]*?\n\}/) || [''])[0];
+  check('the grid scroll is restored by closeViewer and never reset by the viewer',
+    /renderAll\(true\)\},300\);/.test(closeFn52) &&
+    /const sc=\$\('#screen'\), y=keepScroll\?sc\.scrollTop:0;/.test(screenFn52) &&
+    /sc\.scrollTop=y;/.test(screenFn52) &&
+    screenFn52.indexOf('sc.scrollTop=y;') > screenFn52.indexOf('swapIn(sc,html)') &&
+    screenFn52.indexOf('sc.scrollTop=y;') > screenFn52.indexOf('renderResults()') &&
+    !/scrollTop/.test(openFn52) &&
+    /#screen\{[^}]*overflow-y:auto/.test(asset) &&
+    !/scrollTop\s*=\s*0/.test(asset));
+
   await browser.close();
   server.close();
 
