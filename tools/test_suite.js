@@ -1204,6 +1204,36 @@ function check(name, ok, detail) {
     !/^ {4}(?:private |protected |public |final |static )*Bridge\s+\w+\s*[;=]/m.test(java) &&
     /window\.AndroidNative/.test(fs.readFileSync(APP, 'utf8')));
 
+  /* 65. A backgrounded process is the one the system reclaims, and the media list is the biggest
+         thing the activity holds that the page does not need while it is off screen: the grid was
+         painted from JSON the page parsed itself, so the native copy is read again only through
+         photos(), and a resume past the 1.5 s cache re-queries MediaStore anyway. The drop is
+         armed in onStop — the first callback that means the user left, not "a dialog is on top" —
+         cancelled in onStart and in onDestroy, and it only nulls the list, so no bridge method,
+         no setting and no page change is involved. cachedMedia now has a UI-thread writer as well
+         as the bridge thread and a background import, so all three sites move it under mediaLock
+         and none of them holds the lock across the MediaStore query. */
+  const onStop65 = (java.match(/protected void onStop\(\)[\s\S]*?\n    \}/) || [''])[0];
+  const onStart65 = (java.match(/protected void onStart\(\)[\s\S]*?\n    \}/) || [''])[0];
+  const destroy65 = (java.match(/protected void onDestroy\(\)[\s\S]*?\n    \}/) || [''])[0];
+  const freeRun65 = (java.match(/private final Runnable freeMediaOnBackground = new Runnable\(\)[\s\S]*?\n    \};/) || [''])[0];
+  const cached65 = (java.match(/private List<Item> queryMediaCached\(\)[\s\S]*?\n    \}/) || [''])[0];
+  const invalid65 = (java.match(/private void invalidateMediaCache\(\)[\s\S]*?\n    \}/) || [''])[0];
+  const mediaWrites65 = (java.match(/^ {8,}cachedMedia = /gm) || []).length;
+  check('the media list is dropped only after a long backgrounding, under one lock',
+    onStop65.length > 0 && onStart65.length > 0 && freeRun65.length > 0 &&
+    /uiHandler\.postDelayed\(freeMediaOnBackground, MEDIA_LIST_BG_FREE_MS\);/.test(onStop65) &&
+    /uiHandler\.removeCallbacks\(freeMediaOnBackground\);/.test(onStart65) &&
+    /uiHandler\.removeCallbacks\(freeMediaOnBackground\);/.test(destroy65) &&
+    /MEDIA_LIST_BG_FREE_MS = 60L \* 1000/.test(java) &&
+    /synchronized \(mediaLock\) \{[\s\S]*cachedMedia = null;[\s\S]*cachedMediaAt = 0L;/.test(freeRun65) &&
+    /synchronized \(mediaLock\)/.test(cached65) && /synchronized \(mediaLock\)/.test(invalid65) &&
+    mediaWrites65 === 3 &&
+    cached65.indexOf('synchronized (mediaLock)') < cached65.indexOf('queryMedia()') &&
+    !/cachedMedia = null/.test(onStop65) &&
+    !/@JavascriptInterface/.test(freeRun65) &&
+    /private final Handler uiHandler = new Handler\(Looper\.getMainLooper\(\)\);/.test(java));
+
   /* 16. HEIC/HEIF: the platform decoder only reads it from API 28, so below that the decode path
          must refuse the row before anything is opened (no stream, no fd, no repeated attempt) and
          remember it, while on 28+ ImageDecoder is tried first and a HEIF failure is not handed to
