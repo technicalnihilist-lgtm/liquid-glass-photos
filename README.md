@@ -13,9 +13,9 @@ A real, installable Android **photos** app — the liquid-glass UI from the orig
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.5.14, 122 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.5.15, 122 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.5.14 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.5.15 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -114,6 +114,28 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.5.15 — day 7 of the 20-day optimisation plan, forty-seventh pass
+No UI change, no new features. Item 65 of the plan: the media list is freed when the app stays in
+the background.
+- The list is the largest thing the activity holds that the page does not need off screen. Every
+  tile on screen was painted from JSON the page parsed for itself, so the native copy is read again
+  only through `photos()` — and a resume more than 1.5 s after the query (`MEDIA_CACHE_MS`)
+  re-queries MediaStore regardless. Dropping it costs the app nothing it can observe.
+- The drop is armed in `onStop()`, the first callback that means the user left rather than "a dialog
+  is on top of us": the image picker, the delete confirmation and the permission prompt all pause
+  the app and none of them stop it, so a short trip away keeps the list. `onStart()` cancels the
+  timer, and `onDestroy()` cancels it too. Only a backgrounding longer than `MEDIA_LIST_BG_FREE_MS`
+  (60 s) actually drops it, and it logs how many rows it released.
+- The list and its timestamp now move together under `mediaLock`, because the drop adds a third
+  writer to the two that were already there (the bridge's `photos()`, a background import). The
+  lock is never held across the MediaStore query, so the UI thread cannot queue behind the provider.
+- The id-keyed metadata caches (`dimCache`, `mimeCache`, `sizeCache`, `dateCache`) are deliberately
+  kept: they are small, and the on-disk thumbnail name is derived from `dateCache`, so dropping them
+  would cost a re-decode per tile on resume. No bridge method, no setting, no page change —
+  `app/assets/index.html` is byte-identical to 1.5.14.
+- `tools/test_suite.js` gains one check (85 now) pinning the timer, its two cancels, the single
+  `mediaLock`, the three write sites and the absence of any page-facing surface on the drop.
 
 ### 1.5.14 — day 7 of the 20-day optimisation plan, forty-sixth pass
 No UI change, no new features. Item 64 of the plan: the WebView does not retain the bridge after
