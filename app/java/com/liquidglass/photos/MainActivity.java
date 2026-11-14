@@ -104,6 +104,11 @@ public class MainActivity extends Activity {
        by media id, so a library that only ever grows would otherwise grow them forever. */
     private static final int MEDIA_META_CACHE_MAX = 2 * 6000;
 
+    /* The one name the page knows the bridge by. It is injected in createWeb() and dropped in
+       both teardown paths from this same constant, so the removal can never name an interface
+       other than the one that was injected. */
+    private static final String BRIDGE_NAME = "AndroidNative";
+
     /* Fixed response headers, built once instead of per request. A WebView reads the header map
        off the UI thread while the response is being consumed, so a map may only be shared when
        nothing can write to it afterwards: every map below is unmodifiable and holds only values
@@ -381,7 +386,7 @@ public class MainActivity extends Activity {
         s.setOffscreenPreRaster(false);
         if (Build.VERSION.SDK_INT >= 26) s.setSafeBrowsingEnabled(false);
 
-        w.addJavascriptInterface(new Bridge(), "AndroidNative");
+        w.addJavascriptInterface(new Bridge(), BRIDGE_NAME);
         /* onRenderProcessGone only exists from API 26, and its parameter type does not exist on
            24/25: the recovery client is a separate class that is loaded only on 26+, so a device
            without the class never resolves it. */
@@ -389,6 +394,24 @@ public class MainActivity extends Activity {
         w.setWebChromeClient(new WebChromeClient());
         w.setOverScrollMode(View.OVER_SCROLL_NEVER);
         return w;
+    }
+
+    /* The bridge is the one object a WebView holds that reaches back into this activity: Bridge is
+       a non-static inner class, so the injected instance carries MainActivity.this — the media
+       list, the thumbnail caches, the grid. destroy() drops the view's AwContents, and the
+       injected-object map goes with it, so a destroyed WebView retains nothing on a stock WebView.
+       But that release is the framework's own, and a WebView that keeps its AwContents alive past
+       destroy() — an OEM build, a bug — would keep the bridge and, through it, this activity.
+       Both teardown paths therefore drop the interface on the live view first, so what the
+       WebView holds is severed by this class and not by the framework's cleanup. Nothing on
+       screen changes: the page is already gone, or about to be, at both call sites. */
+    private static void dropBridge(WebView w) {
+        if (w == null) return;
+        try {
+            w.removeJavascriptInterface(BRIDGE_NAME);
+        } catch (Throwable ignored) {
+            /* the view is already unusable; destroy() below still runs */
+        }
     }
 
     /* The renderer is a separate process and the system kills it whenever it needs to: a
@@ -406,6 +429,7 @@ public class MainActivity extends Activity {
         web = null;
         if (old != null) {
             root.removeView(old);
+            dropBridge(old);
             try {
                 old.destroy();
             } catch (Throwable ignored) {
@@ -1703,6 +1727,7 @@ public class MainActivity extends Activity {
         WebView w = web;
         web = null;
         if (w != null) {
+            dropBridge(w);
             try {
                 w.loadUrl("about:blank");
                 w.destroy();
