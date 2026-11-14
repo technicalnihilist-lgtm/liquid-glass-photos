@@ -1120,6 +1120,53 @@ function check(name, ok, detail) {
     trimHiddenAt > 0 && trimLowAt > trimHiddenAt && trimDropAt > trimLowAt &&
     !/trimThumbDisk|\.delete\(/.test(trimFn));
 
+  /* 63. Nothing a listener holds is ever dropped by the app: it is handed to a framework object
+         that keeps it as long as it likes (the decoder holds the header callback for a whole
+         decode, the sensor manager holds the tilt listener for the life of the registration), so
+         anything captured stays alive with it — a Bitmap most of all. Every anonymous class in the
+         bridge is scanned for one, the activity must declare no Bitmap field at all, and the one
+         callback that runs off the UI thread during a decode must be a static nested class holding
+         a single int, so neither the activity nor a bitmap can travel with it. */
+  const flat = java
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => ' '.repeat(m.length))
+    .replace(/\/\/[^\n]*/g, (m) => ' '.repeat(m.length))
+    .replace(/"(?:[^"\\\n]|\\.)*"/g, (m) => ' '.repeat(m.length));
+  const anonBodies = [];
+  const anonRe = /new [\w.]+(?:<[^>]*>)?\([^;{}]*\)\s*\{/g;
+  let am;
+  while ((am = anonRe.exec(flat)) !== null) {
+    let i = am.index + am[0].length - 1;
+    let depth = 0;
+    let end = flat.length - 1;
+    for (; i < flat.length; i++) {
+      if (flat[i] === '{') depth++;
+      else if (flat[i] === '}' && --depth === 0) { end = i; break; }
+    }
+    anonBodies.push(java.slice(am.index, end + 1));
+  }
+  const bitmapFields = flat.match(/^ {4}(?:private |protected |public |static |final )*Bitmap\s+\w+\s*[;=]/gm) || [];
+  const headerCls = (java.match(/private static final class ThumbHeader implements ImageDecoder\.OnHeaderDecodedListener \{[\s\S]*?\n    \}/) || [''])[0];
+  const headerUse = (java.match(/private Bitmap decodeThumbImageDecoder\(Uri uri[^{]*\{[\s\S]*?\n    \}/) || [''])[0];
+  /* the class's own comment says "BitmapFactory", so the scan for a field runs on the code only */
+  const headerCode = headerCls
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/[^\n]*/g, '');
+  check('no listener in the bridge holds a Bitmap, and the decode header callback is static',
+    anonBodies.length >= 5 && anonBodies.every((b) => !/Bitmap/.test(b)) &&
+    bitmapFields.length === 0 &&
+    headerCls.length > 0 && /private final int max;/.test(headerCode) && !/Bitmap/.test(headerCode) &&
+    /new ThumbHeader\(max\)/.test(headerUse) &&
+    !/new ImageDecoder\.OnHeaderDecodedListener/.test(java));
+
+  /* The callback's whole payload is the cap: one field, and the allocator, the memory policy and
+     the target size it asks for are the ones the anonymous version asked for. */
+  const headerFields = headerCls.match(/^ {8}(?:private |protected |public |static |final )*[\w.<>\[\]]+\s+\w+\s*;/gm) || [];
+  check('the static header callback carries only the cap and decodes exactly as before',
+    headerFields.length === 1 && /private final int max;/.test(headerFields[0]) &&
+    /setAllocator\(ImageDecoder\.ALLOCATOR_SOFTWARE\)/.test(headerCls) &&
+    /setMemorySizePolicy\(ImageDecoder\.MEMORY_POLICY_LOW_RAM\)/.test(headerCls) &&
+    /decoder\.setTargetSize\(Math\.max\(1, Math\.round\(sz\.getWidth\(\) \* f\)\),/.test(headerCls));
+
   /* 16. HEIC/HEIF: the platform decoder only reads it from API 28, so below that the decode path
          must refuse the row before anything is opened (no stream, no fd, no repeated attempt) and
          remember it, while on 28+ ImageDecoder is tried first and a HEIF failure is not handed to
