@@ -356,7 +356,19 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
   correct. No bridge method, no setting, no page change: `app/assets/index.html` is byte-identical to 1.5.11.
   `tools/test_suite.js` gains one check (80 total) holding the override, the `dropThumbCache()` call, the two gates
   ahead of it, and the absence of any disk-cache work inside it. *(1.5.12)*
-- [ ] 63. Avoid holding `Bitmap` references in listeners.
+- [x] 63. Avoid holding `Bitmap` references in listeners — done: the audit found one listener in the
+  decode path, the anonymous `ImageDecoder.OnHeaderDecodedListener` inside `decodeThumbImageDecoder`. It
+  held no bitmap itself, but as an inner class it carried `MainActivity.this` — every cache, the WebView,
+  the grid — into the decoder for the whole decode, which runs on the decoder's own thread while a
+  thumbnail is built. It is now `ThumbHeader`, a `static final` nested class whose only field is the pixel
+  cap, so a decode travels with one int and no reference to the activity; the allocator, the low-RAM
+  policy and the target size it asks for are unchanged, so every thumbnail decodes exactly as before. The
+  rest of the bridge was audited the same way: `tiltListener`, the insets listener and the eleven
+  `Runnable`s hold no `Bitmap`, and the activity declares no `Bitmap` field at all. No bridge method, no
+  setting, no page change: `app/assets/index.html` is byte-identical to 1.5.12. `tools/test_suite.js`
+  gains two checks (82 total) — every anonymous class in the bridge scanned for a `Bitmap` and the
+  activity for a `Bitmap` field, and the header callback pinned as the static class holding one int with
+  the same allocator, policy and target size. *(1.5.13)*
 - [ ] 64. Check the WebView does not retain the bridge after `destroy()`.
 - [ ] 65. Free the media list when the app goes to the background for a long time.
 - [ ] 66. Use `RGB_565` for thumbs (present) — verify it does not band badly.
