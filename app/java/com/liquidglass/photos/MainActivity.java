@@ -26,6 +26,8 @@ import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.provider.MediaStore;
 import android.util.Log;
@@ -618,6 +620,39 @@ public class MainActivity extends Activity {
     private long cachedMediaAt = 0L;
     private static final long MEDIA_CACHE_MS = 1500L;
 
+    /* 65. The media list is the largest thing this activity holds that the page does not need
+       while it is not on screen. Every tile on screen was painted from JSON the page parsed for
+       itself, so the native copy is only ever read again through photos() — and a resume that
+       comes more than MEDIA_CACHE_MS after the query re-queries MediaStore anyway. A backgrounding
+       therefore has two outcomes and no third: a short one (a dialog, the system picker, a
+       permission prompt, a share sheet) keeps the list, because onStart cancels the drop below;
+       a long one drops it, because the list is stale by then and the system wants the heap back
+       from exactly that process. Nothing the user can see changes: no bridge method, no setting,
+       no page change, and the grid that is still in memory keeps drawing from the page's own
+       copy. The id-keyed metadata caches stay — they are small, and the on-disk thumbnail name is
+       derived from one of them, so dropping those would cost a re-decode per tile on resume. */
+    private static final long MEDIA_LIST_BG_FREE_MS = 60L * 1000;
+    /* cachedMedia is written from three threads (the bridge's photos(), a background import, the
+       UI-thread drop below), so the field and its timestamp move together under this lock. The
+       query itself is outside it: holding the lock across MediaStore would block the UI thread
+       behind a provider call. */
+    private final Object mediaLock = new Object();
+    private final Handler uiHandler = new Handler(Looper.getMainLooper());
+    private final Runnable freeMediaOnBackground = new Runnable() {
+        public void run() {
+            int held;
+            synchronized (mediaLock) {
+                held = cachedMedia == null ? 0 : cachedMedia.size();
+                cachedMedia = null;
+                cachedMediaAt = 0L;
+            }
+            if (held > 0) {
+                Log.i(TAG, "media list freed after " + (MEDIA_LIST_BG_FREE_MS / 1000L)
+                        + " s in the background, dropped " + held + " row(s)");
+            }
+        }
+    };
+
     /* A library can hold far more than the app will show. The row ceiling below is unchanged (the
        list a user sees is exactly the same), but the rows now arrive a page at a time: each query
        asks the provider for MEDIA_PAGE_SIZE rows at an offset instead of materialising the whole
@@ -663,16 +698,22 @@ public class MainActivity extends Activity {
     /** MediaStore is expensive; a resume right after a permission callback must not query twice. */
     private List<Item> queryMediaCached() {
         long now = System.currentTimeMillis();
-        if (cachedMedia != null && now - cachedMediaAt < MEDIA_CACHE_MS) return cachedMedia;
+        synchronized (mediaLock) {
+            if (cachedMedia != null && now - cachedMediaAt < MEDIA_CACHE_MS) return cachedMedia;
+        }
         List<Item> list = queryMedia();
-        cachedMedia = list;
-        cachedMediaAt = now;
+        synchronized (mediaLock) {
+            cachedMedia = list;
+            cachedMediaAt = now;
+        }
         return list;
     }
 
     private void invalidateMediaCache() {
-        cachedMedia = null;
-        cachedMediaAt = 0L;
+        synchronized (mediaLock) {
+            cachedMedia = null;
+            cachedMediaAt = 0L;
+        }
     }
 
     private List<Item> queryMedia() {
@@ -1695,6 +1736,24 @@ public class MainActivity extends Activity {
         if (web != null) web.onPause();
     }
 
+    /* 65. onStop is the first callback that means "the user has left" rather than "something is on
+       top of the app", so the long-background timer starts here and is cancelled in onStart: the
+       picker, the delete dialog and a permission prompt all pause the app and none of them stop
+       it. The Runnable lives on this activity's own handler, so it can only run while the process
+       is alive, and it is removed again in onDestroy. */
+    @Override
+    protected void onStop() {
+        super.onStop();
+        uiHandler.removeCallbacks(freeMediaOnBackground);
+        uiHandler.postDelayed(freeMediaOnBackground, MEDIA_LIST_BG_FREE_MS);
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        uiHandler.removeCallbacks(freeMediaOnBackground);
+    }
+
     /* 62. Android tells the process when memory is getting tight, and the decoded-JPEG cache is
        the largest thing this app holds that can be given back without losing anything: every
        byte in it is either re-readable from the disk cache or re-decodable from MediaStore, so
@@ -1724,6 +1783,7 @@ public class MainActivity extends Activity {
            calling into a WebView that no longer exists. The field is cleared afterwards, so from
            then on the null check answers on its own. */
         webGone = true;
+        uiHandler.removeCallbacks(freeMediaOnBackground);
         WebView w = web;
         web = null;
         if (w != null) {
