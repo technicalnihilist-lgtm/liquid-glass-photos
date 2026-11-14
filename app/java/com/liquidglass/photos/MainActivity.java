@@ -976,29 +976,44 @@ public class MainActivity extends Activity {
         return decodeThumbFactory(uri, maxDim, max);
     }
 
-    private Bitmap decodeThumbImageDecoder(Uri uri, final int max) {
+    private Bitmap decodeThumbImageDecoder(Uri uri, int max) {
         try {
             ImageDecoder.Source src = ImageDecoder.createSource(getContentResolver(), uri);
-            return ImageDecoder.decodeBitmap(src, new ImageDecoder.OnHeaderDecodedListener() {
-                @Override
-                public void onHeaderDecoded(ImageDecoder decoder, ImageDecoder.ImageInfo info,
-                                           ImageDecoder.Source source) {
-                    /* Software + low-RAM: a mutable RGB_565 bitmap, which is what compress() needs
-                       and the same config the BitmapFactory path asks for. */
-                    decoder.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE);
-                    decoder.setMemorySizePolicy(ImageDecoder.MEMORY_POLICY_LOW_RAM);
-                    Size sz = info.getSize();
-                    int longest = Math.max(sz.getWidth(), sz.getHeight());
-                    if (longest > max) {
-                        float f = max / (float) longest;
-                        decoder.setTargetSize(Math.max(1, Math.round(sz.getWidth() * f)),
-                                Math.max(1, Math.round(sz.getHeight() * f)));
-                    }
-                }
-            });
+            return ImageDecoder.decodeBitmap(src, new ThumbHeader(max));
         } catch (Exception e) {
             Log.w(TAG, "ImageDecoder thumb fail " + uri, e);
             return null;
+        }
+    }
+
+    /* 63. This callback is run by the decoder on its own thread while a decode is in flight, so
+       everything it holds stays alive for the whole decode - and an anonymous class here would be
+       an inner class of the activity, carrying `MainActivity.this` (and with it every cache, the
+       WebView and the grid's bitmaps) into the decoder for that time. It is static and holds one
+       int instead, so nothing but the cap travels with the decode, and it has no field a Bitmap
+       could be parked in. Behaviour is unchanged: same allocator, same low-RAM policy, same target
+       size. */
+    private static final class ThumbHeader implements ImageDecoder.OnHeaderDecodedListener {
+        private final int max;
+
+        ThumbHeader(int max) {
+            this.max = max;
+        }
+
+        @Override
+        public void onHeaderDecoded(ImageDecoder decoder, ImageDecoder.ImageInfo info,
+                                    ImageDecoder.Source source) {
+            /* Software + low-RAM: a mutable RGB_565 bitmap, which is what compress() needs
+               and the same config the BitmapFactory path asks for. */
+            decoder.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE);
+            decoder.setMemorySizePolicy(ImageDecoder.MEMORY_POLICY_LOW_RAM);
+            Size sz = info.getSize();
+            int longest = Math.max(sz.getWidth(), sz.getHeight());
+            if (longest > max) {
+                float f = max / (float) longest;
+                decoder.setTargetSize(Math.max(1, Math.round(sz.getWidth() * f)),
+                        Math.max(1, Math.round(sz.getHeight() * f)));
+            }
         }
     }
 
