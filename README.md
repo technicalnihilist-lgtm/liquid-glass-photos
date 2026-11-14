@@ -115,6 +115,27 @@ The APK ships with **no** sample media — it is empty until it reads your galle
 
 ## Changelog
 
+### 1.5.13 — day 7 of the 20-day optimisation plan, forty-fifth pass
+No UI change, no new features. Item 63 of the plan: no listener holds a `Bitmap` — and none holds
+the activity either.
+- The audit found exactly one place where the decode path met a listener: `decodeThumbImageDecoder`
+  handed `ImageDecoder.decodeBitmap` an anonymous `OnHeaderDecodedListener`. An anonymous class in
+  the activity is an inner class, so it carried `MainActivity.this` — every cache, the WebView, the
+  grid — into the decoder for the whole decode, which runs on the decoder's own thread while a
+  thumbnail is being built. It held no bitmap itself, but it had a field for anything it was given.
+- That callback is now `ThumbHeader`, a `static final` nested class whose only field is the pixel
+  cap, so what travels with a decode is one int and no reference to the activity. The allocator,
+  the low-RAM policy and the target size it asks for are unchanged, so every thumbnail is decoded
+  exactly as before.
+- The rest of the bridge was audited the same way: the tilt listener, the insets listener and the
+  eleven `Runnable`s hold no `Bitmap` and the activity declares no `Bitmap` field at all, so a
+  recycled or live bitmap cannot be kept alive by a listener that outlives it.
+- `tools/test_suite.js` gains two checks (82 now, all PASS): every anonymous class in the bridge is
+  scanned for a `Bitmap` and the activity for a `Bitmap` field, and the header callback must be the
+  static class, holding one int, asking for the same allocator, policy and target size. No bridge
+  method, no setting, no row, no pixel changed — `app/assets/index.html` is byte-identical to
+  1.5.12.
+
 ### 1.5.12 — day 7 of the 20-day optimisation plan, forty-fourth pass
 No UI change, no new features. Item 62 of the plan: the thumbnail cache is handed back when the
 system asks for memory.
