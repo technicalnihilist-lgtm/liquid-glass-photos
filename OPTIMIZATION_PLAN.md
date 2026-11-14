@@ -384,7 +384,20 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
   setting, no page change: `app/assets/index.html` is byte-identical to 1.5.13. `tools/test_suite.js`
   gains two checks (84 total) pinning the constant, the single injection site, both drops ahead of their
   own `destroy()`, and the non-static, stateless, single-instance shape of the bridge. *(1.5.14)*
-- [ ] 65. Free the media list when the app goes to the background for a long time.
+- [x] 65. Free the media list when the app goes to the background for a long time — done: the list is the
+  largest thing the activity holds that the page does not need off screen, because the grid on screen
+  was painted from JSON the page parsed for itself, so the native copy is read again only through
+  `photos()`, and a resume more than the 1.5 s `MEDIA_CACHE_MS` after the query re-queries MediaStore
+  anyway. The drop is armed in `onStop()` — the first callback that means the user left, not "a dialog
+  is on top", so the picker, the delete confirmation and the permission prompt keep the list — cancelled
+  in `onStart()` and in `onDestroy()`, and runs only after `MEDIA_LIST_BG_FREE_MS` (60 s), logging the
+  rows it released. `cachedMedia` gained a third writer (the UI-thread drop, beside the bridge's
+  `photos()` and a background import), so it and its timestamp now move under one `mediaLock` that is
+  never held across the MediaStore query. The id-keyed metadata caches stay: they are small, and the
+  on-disk thumbnail name is derived from `dateCache`, so dropping those would cost a re-decode per tile
+  on resume. No bridge method, no setting, no page change — `app/assets/index.html` is byte-identical to
+  1.5.14. `tools/test_suite.js` gains one check (85 total) pinning the timer, both cancels, the single
+  lock, the three write sites and the absence of any page-facing surface on the drop. *(1.5.15)*
 - [ ] 66. Use `RGB_565` for thumbs (present) — verify it does not band badly.
 - [ ] 67. Avoid string concatenation in the JSON builder (use a reusable buffer).
 - [ ] 68. Trim the JSON payload: drop fields the UI never reads.
