@@ -369,7 +369,21 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
   gains two checks (82 total) — every anonymous class in the bridge scanned for a `Bitmap` and the
   activity for a `Bitmap` field, and the header callback pinned as the static class holding one int with
   the same allocator, policy and target size. *(1.5.13)*
-- [ ] 64. Check the WebView does not retain the bridge after `destroy()`.
+- [x] 64. Check the WebView does not retain the bridge after `destroy()` — done: the bridge is the one
+  object a WebView holds that reaches back into the activity — `Bridge` is a non-static inner class, so
+  the injected `AndroidNative` instance carries `MainActivity.this` and with it the media list, the
+  thumbnail caches and the grid — and the audit found one holder (the WebView's injected-object map) and
+  one injection site (`createWeb()`). `destroy()` drops the view's `AwContents` and that map with it, so a
+  destroyed WebView retains nothing on a stock WebView; but the release was the framework's own, and a
+  WebView that keeps its `AwContents` alive past `destroy()` — an OEM build, a bug — would keep the bridge
+  and the activity with it. Both teardown paths, `rebuildWebView()` after a renderer death and
+  `onDestroy()`, now call `dropBridge()`, which removes the interface on the live view first, and both name
+  it from the one `BRIDGE_NAME` constant `createWeb()` injects with, so a removal can never name a
+  different interface than the injection. The activity holds no reference to a bridge instance and
+  `Bridge` declares no static field, so the drop is the whole of the reference. No bridge method, no
+  setting, no page change: `app/assets/index.html` is byte-identical to 1.5.13. `tools/test_suite.js`
+  gains two checks (84 total) pinning the constant, the single injection site, both drops ahead of their
+  own `destroy()`, and the non-static, stateless, single-instance shape of the bridge. *(1.5.14)*
 - [ ] 65. Free the media list when the app goes to the background for a long time.
 - [ ] 66. Use `RGB_565` for thumbs (present) — verify it does not band badly.
 - [ ] 67. Avoid string concatenation in the JSON builder (use a reusable buffer).
