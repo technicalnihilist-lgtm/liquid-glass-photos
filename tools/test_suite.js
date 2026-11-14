@@ -1167,6 +1167,43 @@ function check(name, ok, detail) {
     /setMemorySizePolicy\(ImageDecoder\.MEMORY_POLICY_LOW_RAM\)/.test(headerCls) &&
     /decoder\.setTargetSize\(Math\.max\(1, Math\.round\(sz\.getWidth\(\) \* f\)\),/.test(headerCls));
 
+  /* 64. The WebView is the one framework object that holds the bridge, and Bridge is a non-static
+         inner class, so the instance the page talks to carries this activity — the media list, the
+         thumbnail caches, the grid. destroy() drops the view's injected-object map on a stock
+         WebView, but that release is the framework's own. Both teardown paths — the renderer-death
+         rebuild and onDestroy — now drop the interface on the live view first, from the same
+         constant createWeb() injects with, and each drop precedes its own destroy(), so what a
+         destroyed WebView holds is severed here rather than left to the framework's cleanup. */
+  const bridgeConst = (java.match(/private static final String BRIDGE_NAME = "([^"]+)";/) || [])[1];
+  const createFn64 = (java.match(/private WebView createWeb\(\)[\s\S]*?\n    \}/) || [''])[0];
+  const rebuildFn64 = (java.match(/private void rebuildWebView\(\)[\s\S]*?\n    \}/) || [''])[0];
+  const destroyFn64 = (java.match(/protected void onDestroy\(\)[\s\S]*?\n    \}/) || [''])[0];
+  const dropFn64 = (java.match(/private static void dropBridge\(WebView w\)[\s\S]*?\n    \}/) || [''])[0];
+  const bridgeLiteral = (java.match(/"AndroidNative"/g) || []).length;
+  check('the bridge is dropped from the WebView before destroy() on both teardown paths',
+    bridgeConst === 'AndroidNative' && bridgeLiteral === 1 &&
+    (java.match(/addJavascriptInterface/g) || []).length === 1 &&
+    /addJavascriptInterface\(new Bridge\(\), BRIDGE_NAME\)/.test(createFn64) &&
+    dropFn64.length > 0 && /removeJavascriptInterface\(BRIDGE_NAME\)/.test(dropFn64) &&
+    rebuildFn64.indexOf('dropBridge(old)') > 0 &&
+    rebuildFn64.indexOf('dropBridge(old)') < rebuildFn64.indexOf('old.destroy()') &&
+    destroyFn64.indexOf('dropBridge(w)') > 0 &&
+    destroyFn64.indexOf('dropBridge(w)') < destroyFn64.indexOf('w.destroy()'));
+
+  /* The drop only matters because the bridge reaches back into the activity: Bridge must stay a
+         non-static inner class, it must declare no static state that would outlive the view, and
+         the activity must hold no reference to an instance — the injected one lives in the WebView
+         and nowhere else, so dropping it is the whole of the reference. The page keeps calling it
+         by the same name, which is why the constant is pinned to it above. */
+  const bridgeCls64 = (java.match(/^ {4}public class Bridge \{[\s\S]*?\n    \}/m) || [''])[0];
+  const bridgeFields64 = bridgeCls64.match(/^ {8}(?:private |protected |public )?static /gm) || [];
+  check('the bridge stays a non-static inner class with no static state and no other holder',
+    bridgeCls64.length > 0 && !/static class Bridge/.test(java) &&
+    bridgeFields64.length === 0 &&
+    (java.match(/new Bridge\(\)/g) || []).length === 1 &&
+    !/^ {4}(?:private |protected |public |final |static )*Bridge\s+\w+\s*[;=]/m.test(java) &&
+    /window\.AndroidNative/.test(fs.readFileSync(APP, 'utf8')));
+
   /* 16. HEIC/HEIF: the platform decoder only reads it from API 28, so below that the decode path
          must refuse the row before anything is opened (no stream, no fd, no repeated attempt) and
          remember it, while on 28+ ImageDecoder is tried first and a HEIF failure is not handed to
