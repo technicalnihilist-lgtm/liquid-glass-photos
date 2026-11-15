@@ -367,8 +367,9 @@ function loadLibrary(){
     let favs=[]; try{favs=JSON.parse(N.favs()).map(String)}catch(e){}
     const fs=new Set(favs);
     P.length=0;
+    /* the native payload no longer carries mime (nothing read it) */
     (data.items||[]).forEach(o=>{
-      P.push({id:o.id,kind:'image',name:o.n,bucket:o.b,mime:o.m,date:o.d,size:o.s,w:o.w,h:o.h,fav:fs.has(String(o.id))});
+      P.push({id:o.id,kind:'image',name:o.n,bucket:o.b,date:o.d,size:o.s,w:o.w,h:o.h,fav:fs.has(String(o.id))});
     });
     LOADED=true;
     renderAll(true);
