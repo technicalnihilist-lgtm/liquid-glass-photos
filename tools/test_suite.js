@@ -1976,6 +1976,42 @@ function check(name, ok, detail) {
     /#screen\{[^}]*overflow-y:auto/.test(asset) &&
     !/scrollTop\s*=\s*0/.test(asset));
 
+  /* 88. The library payload is built in one reusable buffer. photos() runs on the bridge thread on
+         every library read, and the builder used to allocate a fresh StringBuilder and a fresh
+         String for each quoted field of every row, plus a Formatter for every control character -
+         ~24000 short-lived allocations for a 6000-photo library. The quoted text is now written
+         straight into a per-thread buffer that is emptied and refilled in place, so a read costs
+         one growth and one String and nothing per row. */
+  const itemsFn = (java.match(/private String itemsJson\(List<Item> list\)[\s\S]*?\n    \}/) || [''])[0];
+  const quotedFn = (java.match(/private static void appendQuoted\(StringBuilder sb, String s\)[\s\S]*?\n    \}/) || [''])[0];
+  check('native builds the library payload in one reusable buffer',
+    /private final ThreadLocal<StringBuilder> jsonBuf = new ThreadLocal<StringBuilder>\(\)/.test(java) &&
+    /StringBuilder sb = jsonBuf\.get\(\);/.test(itemsFn) &&
+    /sb\.setLength\(0\);/.test(itemsFn) &&
+    /appendQuoted\(sb, it\.name\)/.test(itemsFn) &&
+    /appendQuoted\(sb, it\.bucket\)/.test(itemsFn) &&
+    /appendQuoted\(sb, it\.mime\)/.test(itemsFn) &&
+    !/new StringBuilder\(/.test(itemsFn) &&
+    !/\bq\(/.test(itemsFn) &&
+    itemsFn.indexOf('jsonBuf.get()') < itemsFn.indexOf('sb.setLength(0)') &&
+    itemsFn.indexOf('sb.setLength(0)') < itemsFn.indexOf('"{\\"count\\":"') &&
+    /if \(sb\.capacity\(\) > JSON_BUF_KEEP\) jsonBuf\.remove\(\);/.test(itemsFn));
+
+  /* 89. Quoting writes into the caller's buffer. The old q() returned a new String per field and
+         built the control-character escape through String.format (a Formatter allocation each
+         time); both are gone, and the escape is four hex digits appended by hand - the same bytes,
+         lowercase, that String.format produced. */
+  check('native quotes JSON fields into the caller buffer with no per-field allocation',
+    /private static void appendQuoted\(StringBuilder sb, String s\)/.test(java) &&
+    /sb\.append\('"'\);/.test(quotedFn) &&
+    !/new StringBuilder/.test(quotedFn) &&
+    !/String\.format/.test(quotedFn) &&
+    /appendUnicodeEscape\(sb, ch\);/.test(quotedFn) &&
+    /private static void appendUnicodeEscape\(StringBuilder sb, char ch\)/.test(java) &&
+    /HEX_DIGITS\[\(ch >> 12\) & 0xF\]/.test(java) &&
+    /"0123456789abcdef"\.toCharArray\(\)/.test(java) &&
+    !/private static String q\(String s\)/.test(java));
+
   await browser.close();
   server.close();
 
