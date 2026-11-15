@@ -13,9 +13,9 @@ A real, installable Android **photos** app — the liquid-glass UI from the orig
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.5.15, 122 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.5.16, 122 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.5.15 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.5.16 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -114,6 +114,25 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.5.16 — day 7 of the 20-day optimisation plan, forty-eighth pass
+No UI change, no new features. Item 66 of the plan: the `RGB_565` thumbnail depth is verified, not
+changed.
+- Both decode paths already land on 565 — `BitmapFactory` asks for it outright, and `ImageDecoder`
+  gets it from `ALLOCATOR_SOFTWARE` plus `MEMORY_POLICY_LOW_RAM`, which is what makes the decoder
+  pick 565 for an opaque image. So the question was whether the depth shows as banding, and the
+  answer is no: rounding to 5/6/5 moves a channel by at most 4/255 (red, blue) and 2/255 (green), a
+  mean of ~1.5/255.
+- The one thing 565 does do on a smooth 520 px gradient is leave 8-level plateaus, and those never
+  reach a tile: every thumb is re-encoded JPEG/82 before it is cached or served, and that encode
+  smooths the plateaus away — the widest step left along the same row is 3/255, against 2/255 for
+  an 8-bit source put through the same encode. The wire format is JPEG in any case, so the alpha
+  channel 565 gives up was never available to the page to begin with.
+- No behaviour changed: the two decode paths gained a comment recording the measurement, nothing
+  else, and `app/assets/index.html` is byte-identical to 1.5.15. `tools/test_suite.js` gains two
+  checks (87 now) pinning 565 on both paths, the absence of any `ARGB_8888` request, the allocator
+  and memory-policy calls ahead of `setTargetSize`, and the single JPEG/82 encode ahead of the
+  cache write.
 
 ### 1.5.15 — day 7 of the 20-day optimisation plan, forty-seventh pass
 No UI change, no new features. Item 65 of the plan: the media list is freed when the app stays in
