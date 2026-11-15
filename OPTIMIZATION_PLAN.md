@@ -429,7 +429,24 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
   `tools/test_suite.js` gains two checks (89 total) pinning the per-thread buffer, the absence of
   `q()`, `String.format` and `new StringBuilder` inside the builder, and the hand-written escape.
   *(1.5.17)*
-- [ ] 68. Trim the JSON payload: drop fields the UI never reads.
+- [x] 68. Trim the JSON payload: drop fields the UI never reads — done: the three keys nothing
+  read are gone. `"v"` was a hard-coded 0 with no reader anywhere in `index.html`; `"m"` was the
+  mime type, which the page copied into its own record as `p.mime` and then never looked at again
+  (the grid, the search haystack, the albums, the info sheet and the share type all work from the
+  name, the bucket and the dimensions); and the envelope's `"count"` was never read either — the
+  page walks `items`. A row is now `id, n, b, d, s, w, h`. Replaying the old and the new builder
+  over a 6000-photo library, the payload drops from 720167 to 583654 bytes — 22.75 bytes a row,
+  -19.0% — and that is paid three times per read of the library: on the copy across the JS bridge,
+  on the WebView's parse and in the page's own record for every photo. The builder's
+  `ensureCapacity` estimate falls from 140 to 112 chars a row with it, so a 6000-photo library no
+  longer asks for an 840000-char array to fill 583654 of them. The `Item` fields themselves stay:
+  `mime` is still needed natively for the HEIC check and the metadata cache, it is just not
+  serialised, and `name`, `bucket`, `date`, `size`, `w` and `h` are all read by the page.
+  `app/assets/index.html` changes by one line — the dead `mime:o.m` copy in `loadLibrary` — so the
+  UI, the layout and every screen are untouched. `tools/test_suite.js` gains two checks (91 total):
+  one pins the seven keys and their order and the absence of `v`, `m` and `count` on both sides of
+  the bridge, the other loads a page fed exactly the new payload and proves it still paints every
+  tile and still fills Size and Resolution in the details sheet. *(1.5.18)*
 - [ ] 69. Verify no leak across 50 open/close cycles of the viewer.
 - [ ] 70. Add a debug counter of live bitmaps.
 
