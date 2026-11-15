@@ -875,30 +875,53 @@ public class MainActivity extends Activity {
         }
     }
 
+    /* One payload buffer, reused across calls. photos() runs on the WebView's bridge thread every
+       time the page asks for the library, and the builder used to allocate a fresh StringBuilder
+       for the payload, a fresh StringBuilder and String for each of the three quoted fields on
+       every row, and a Formatter for any control character - so a 6000-photo library paid ~24000
+       short-lived allocations per read. The quoted text is now written straight into the shared
+       buffer and the JSON escapes are appended by hand, leaving one char[] growth and one String
+       per read and nothing per row. The buffer is held per thread so a second WebView (or any
+       future off-thread caller) can never interleave into the same char[], and it is dropped after
+       a read that needed more than JSON_BUF_KEEP chars, so a one-off huge library does not pin its
+       array for the life of the process. The bytes on the wire are unchanged. */
+    private static final int JSON_BUF_KEEP = 32 * 1024;
+    private static final char[] HEX_DIGITS = "0123456789abcdef".toCharArray();
+    private final ThreadLocal<StringBuilder> jsonBuf = new ThreadLocal<StringBuilder>() {
+        @Override protected StringBuilder initialValue() { return new StringBuilder(1024); }
+    };
+
     private String itemsJson(List<Item> list) {
-        StringBuilder sb = new StringBuilder(64 + list.size() * 140);
+        StringBuilder sb = jsonBuf.get();
+        sb.setLength(0);
+        int need = 64 + list.size() * 140;
+        if (sb.capacity() < need) sb.ensureCapacity(need);
         sb.append("{\"count\":").append(list.size()).append(",\"items\":[");
         for (int i = 0; i < list.size(); i++) {
             Item it = list.get(i);
             if (i > 0) sb.append(',');
             sb.append("{\"id\":").append(it.id)
-                    .append(",\"v\":0")
-                    .append(",\"n\":").append(q(it.name))
-                    .append(",\"b\":").append(q(it.bucket))
-                    .append(",\"m\":").append(q(it.mime))
-                    .append(",\"d\":").append(it.date)
+                    .append(",\"v\":0");
+            sb.append(",\"n\":"); appendQuoted(sb, it.name);
+            sb.append(",\"b\":"); appendQuoted(sb, it.bucket);
+            sb.append(",\"m\":"); appendQuoted(sb, it.mime);
+            sb.append(",\"d\":").append(it.date)
                     .append(",\"s\":").append(it.size)
                     .append(",\"w\":").append(it.w)
                     .append(",\"h\":").append(it.h)
                     .append('}');
         }
         sb.append("]}");
-        return sb.toString();
+        String out = sb.toString();
+        if (sb.capacity() > JSON_BUF_KEEP) jsonBuf.remove();
+        return out;
     }
 
-    private static String q(String s) {
-        if (s == null) return "\"\"";
-        StringBuilder sb = new StringBuilder(s.length() + 8).append('"');
+    /* Writes the quoted, escaped form of s into the caller's buffer - the same text the old
+       q() returned as a new String, minus the two allocations per field. */
+    private static void appendQuoted(StringBuilder sb, String s) {
+        if (s == null) { sb.append("\"\""); return; }
+        sb.append('"');
         for (int i = 0; i < s.length(); i++) {
             char ch = s.charAt(i);
             switch (ch) {
@@ -908,11 +931,20 @@ public class MainActivity extends Activity {
                 case '\r': sb.append("\\r"); break;
                 case '\t': sb.append("\\t"); break;
                 default:
-                    if (ch < 0x20) sb.append(String.format(Locale.US, "\\u%04x", (int) ch));
+                    if (ch < 0x20) appendUnicodeEscape(sb, ch);
                     else sb.append(ch);
             }
         }
-        return sb.append('"').toString();
+        sb.append('"');
+    }
+
+    /* backslash-u plus four lowercase hex digits - the exact shape String.format produced. */
+    private static void appendUnicodeEscape(StringBuilder sb, char ch) {
+        sb.append("\\u");
+        sb.append(HEX_DIGITS[(ch >> 12) & 0xF]);
+        sb.append(HEX_DIGITS[(ch >> 8) & 0xF]);
+        sb.append(HEX_DIGITS[(ch >> 4) & 0xF]);
+        sb.append(HEX_DIGITS[ch & 0xF]);
     }
 
     private Uri uriFor(long id) {
