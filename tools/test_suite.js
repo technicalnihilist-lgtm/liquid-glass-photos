@@ -2062,6 +2062,54 @@ function check(name, ok, detail) {
   await trimPage.close();
   currentStub = stubFor(library(COUNT), 'true');
 
+  /* 92. Item 69: the viewer must not leave anything behind when it closes. Fifty real
+         open/close cycles on a fresh page — a tap on a tile, then the close button, each one
+         waiting for the subtree to leave the document — and the page must come back with the
+         same node count, the same tile count, the same number of images carrying a src and no
+         .viewer or .slide anywhere. Anything retained per cycle shows up here as growth. */
+  const leakPage = await browser.newPage();
+  leakPage.on('pageerror', (e) => errors.push(String(e && e.message)));
+  await leakPage.evaluateOnNewDocument(() => { try { localStorage.clear(); } catch (e) {} });
+  await leakPage.goto(base, { waitUntil: 'load' });
+  await leakPage.waitForFunction((n) => document.querySelectorAll('.tile').length === n, { timeout: 30000 }, COUNT);
+  const shape = () => leakPage.evaluate(() => ({
+    nodes: document.getElementsByTagName('*').length,
+    viewers: document.querySelectorAll('.viewer').length,
+    slides: document.querySelectorAll('.slide').length,
+    imgsWithSrc: document.querySelectorAll('img[src]').length,
+    tiles: document.querySelectorAll('.tile').length,
+  }));
+  const beforeLeak = await shape();
+  for (let k = 0; k < 50; k++) {
+    await leakPage.evaluate(() => {
+      document.querySelectorAll('.tile')[10].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await leakPage.waitForFunction(() => !!document.querySelector('.viewer'), { timeout: 15000 });
+    await leakPage.evaluate(() => {
+      const b = document.querySelector('.viewer [data-v="close"]');
+      if (b) b.click();
+    });
+    await leakPage.waitForFunction(() => !document.querySelector('.viewer'), { timeout: 15000 });
+    await settle(340);
+  }
+  const afterLeak = await shape();
+  check('50 open/close cycles of the viewer leave no node, slide or image behind',
+    afterLeak.nodes === beforeLeak.nodes && afterLeak.tiles === beforeLeak.tiles &&
+    afterLeak.imgsWithSrc === beforeLeak.imgsWithSrc &&
+    afterLeak.viewers === 0 && afterLeak.slides === 0,
+    beforeLeak.nodes + '->' + afterLeak.nodes + ' nodes, ' + afterLeak.viewers + ' viewer(s) left');
+
+  /* 93. And the shape that makes it true: closeViewer clears the three slide srcs while the
+         subtree is still in the document and removes it after, in the same task. Swapping those
+         two back retains one detached viewer per cycle. */
+  const pageSrc = fs.readFileSync(APP, 'utf8');
+  const cvBody = pageSrc.slice(pageSrc.indexOf('function closeViewer('), pageSrc.indexOf('/* ---------- native callbacks'));
+  const dropAt = cvBody.indexOf("removeAttribute('src')");
+  const removeAt = cvBody.indexOf('el.remove()');
+  check('closeViewer drops the three bitmaps before the viewer leaves the document',
+    dropAt > 0 && removeAt > 0 && dropAt < removeAt);
+  await leakPage.close();
+
   await browser.close();
   server.close();
 
