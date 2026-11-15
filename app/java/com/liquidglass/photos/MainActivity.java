@@ -1069,7 +1069,9 @@ public class MainActivity extends Activity {
         public void onHeaderDecoded(ImageDecoder decoder, ImageDecoder.ImageInfo info,
                                     ImageDecoder.Source source) {
             /* Software + low-RAM: a mutable RGB_565 bitmap, which is what compress() needs
-               and the same config the BitmapFactory path asks for. */
+               and the same config the BitmapFactory path asks for. 66. Low-RAM is what makes
+               the decoder pick 565 for an opaque image; a 8888 result here would be twice the
+               bytes per thumb for a depth the JPEG/82 encode below throws away. */
             decoder.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE);
             decoder.setMemorySizePolicy(ImageDecoder.MEMORY_POLICY_LOW_RAM);
             Size sz = info.getSize();
@@ -1104,6 +1106,15 @@ public class MainActivity extends Activity {
         while (maxDim > 0 && maxDim / (sample * 2) >= THUMB_SAMPLE_TARGET_PX) sample *= 2;
         BitmapFactory.Options o = new BitmapFactory.Options();
         o.inSampleSize = sample;
+        /* 66. RGB_565 stays, and it does not band. Two reasons, both checked: the thumb that
+           leaves this method is a JPEG (compress(JPEG, 82) in thumbnail()), which carries no
+           alpha at all, so a 565 decode loses nothing a 8888 decode would have kept - it only
+           halves the bytes each thumb holds while it is in flight. And the quantisation is
+           bounded: rounding to 5/6/5 moves a channel by at most 4/255 (red, blue) and 2/255
+           (green), a mean of ~1.5/255. On a smooth 520 px gradient the contours that alone
+           would leave behind are 8-level plateaus, and the JPEG/82 encode every thumb goes
+           through smooths them out - the widest step left along the same row is 3/255, against
+           2/255 for an 8-bit source through the same encode. Nothing visible reaches a tile. */
         o.inPreferredConfig = Bitmap.Config.RGB_565;
         /* Ask the decoder to land on the final size itself: with inDensity set to the
            post-sample width and inTargetDensity to the cap, the scale happens inside
