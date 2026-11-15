@@ -13,9 +13,9 @@ A real, installable Android **photos** app — the liquid-glass UI from the orig
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.5.16, 122 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.5.17, 122 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.5.16 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.5.17 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -114,6 +114,25 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.5.17 — day 7 of the 20-day optimisation plan, forty-ninth pass
+No UI change, no new features. Item 67 of the plan: the library JSON is built in one reusable
+buffer.
+- `itemsJson()` runs on the WebView bridge thread every time the page asks for the library, and it
+  used to allocate a fresh `StringBuilder` for the payload, then — through `q()` — a fresh
+  `StringBuilder` *and* a fresh `String` for each of the three quoted fields of every row. That is
+  three short-lived strings per photo, about 24000 allocations for a 6000-photo library, per read.
+- Quoting now writes straight into the caller's buffer (`appendQuoted`), and the escape for a
+  control character is four lowercase hex digits appended by hand from a static `HEX_DIGITS` table
+  instead of a `String.format` call, which allocated a `Formatter` every time it was hit.
+- The buffer is held per thread (`ThreadLocal`) rather than as a plain field, so a second WebView
+  could never interleave into the same `char[]`, and it is dropped after a read that needed more
+  than 32 KB — a one-off huge library must not pin its array for the life of the process.
+- The JSON is unchanged: the old `q()` and the new `appendQuoted` were run side by side over 312
+  inputs (control characters, quotes, backslashes, `\u0000`-`\u001f`, 2- and 4-byte UTF-8, real
+  filenames) and produce identical bytes. `app/assets/index.html` is byte-identical to 1.5.16.
+  `tools/test_suite.js` gains two checks (89 now) pinning the per-thread buffer, the absence of
+  `q()`, `String.format` and `new StringBuilder` in the builder, and the hand-written escape.
 
 ### 1.5.16 — day 7 of the 20-day optimisation plan, forty-eighth pass
 No UI change, no new features. Item 66 of the plan: the `RGB_565` thumbnail depth is verified, not
