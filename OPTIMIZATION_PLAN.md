@@ -398,7 +398,20 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
   on resume. No bridge method, no setting, no page change — `app/assets/index.html` is byte-identical to
   1.5.14. `tools/test_suite.js` gains one check (85 total) pinning the timer, both cancels, the single
   lock, the three write sites and the absence of any page-facing surface on the drop. *(1.5.15)*
-- [ ] 66. Use `RGB_565` for thumbs (present) — verify it does not band badly.
+- [x] 66. Use `RGB_565` for thumbs (present) — verified: it does not band badly. Both decode paths
+  already land on 565 — the `BitmapFactory` path asks for it outright, the `ImageDecoder` path gets
+  it from `ALLOCATOR_SOFTWARE` + `MEMORY_POLICY_LOW_RAM`, which is what makes the decoder pick 565
+  for an opaque image — and the measurement says the depth is not visible. Rounding to 5/6/5 moves
+  a channel by at most 4/255 (red, blue) and 2/255 (green), a mean of ~1.5/255. On a smooth 520 px
+  gradient 565 alone does leave 8-level plateaus, but every thumb is re-encoded JPEG/82 before it
+  is cached or served, and that encode smooths them away: the widest step left along the same row
+  is 3/255, against 2/255 for an 8-bit source through the same encode. The wire format is JPEG, so
+  the missing alpha channel costs nothing either — nothing is composited into the bitmap. No code
+  behaviour changed: the two decode paths gained a comment recording the measurement and nothing
+  else, and `app/assets/index.html` is byte-identical to 1.5.15. `tools/test_suite.js` gains two
+  checks (87 total) pinning 565 on both paths, the absence of any `ARGB_8888` request, the order of
+  the allocator/policy calls ahead of `setTargetSize`, and the single JPEG/82 encode ahead of the
+  cache write. *(1.5.16)*
 - [ ] 67. Avoid string concatenation in the JSON builder (use a reusable buffer).
 - [ ] 68. Trim the JSON payload: drop fields the UI never reads.
 - [ ] 69. Verify no leak across 50 open/close cycles of the viewer.
