@@ -1127,9 +1127,14 @@ function build(keepTrack,dir){
 function closeViewer(){
   const el=V&&V.el;if(!el)return;const sl=V.slides;if(V.detach)V.detach();clearTimeout(V.hintT);V=null;clearTimeout(relT);
   el.style.transition='opacity .3s,transform .4s cubic-bezier(.4,0,.2,1)';el.style.opacity=0;el.style.transform='scale(.92)';
-  /* the viewer is gone from the screen before its three bitmaps are dropped, so the fade still
-     shows the photo it was showing */
-  setTimeout(()=>{el.remove();if(sl)sl.forEach(d=>{const im=d.firstChild;if(im)im.removeAttribute('src')});renderAll(true)},300);
+  /* The fade is over by the time this runs, so the photo it was showing is still on screen while
+     the three bitmaps go. The srcs are dropped first and the subtree leaves the document after,
+     in the same task: an <img> that is removed with its load still in flight stays registered in
+     the document's viewport-change listener list, and through it keeps its slide, its track, its
+     stage and the whole viewer alive — one detached viewer per open/close cycle, which
+     tools/leak_probe.js measured as 21 of them after 20 cycles. Clearing the src while the image
+     is still in the document lets the loader cancel and unregister, and the viewer is collected. */
+  setTimeout(()=>{if(sl)sl.forEach(d=>{const im=d.firstChild;if(im)im.removeAttribute('src')});el.remove();renderAll(true)},300);
 }
 
 /* ---------- native callbacks ---------- */
