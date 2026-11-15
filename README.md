@@ -81,9 +81,9 @@ If you like our work, you can support us with a donation. We are bringing this v
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.5.17, 122 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.5.18, 122 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.5.17 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.5.18 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -182,6 +182,25 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.5.18 — day 7 of the 20-day optimisation plan, fiftieth pass
+No UI change, no new features. Item 68 of the plan: the library JSON no longer carries fields the
+page never reads.
+- Three keys nothing looked at are gone from the payload: `v`, a hard-coded 0; `m`, the mime type,
+  which the page copied into its own record as `p.mime` and then never used; and the envelope's
+  `count`, which the page never read either — it walks `items`. A row is now `id, n, b, d, s, w, h`.
+- Replaying both builders over a 6000-photo library: 720167 → 583654 bytes, 22.75 bytes a row,
+  -19.0%. That saving is paid three times on every read of the library — the copy across the JS
+  bridge, the WebView's `JSON.parse`, and the page's own record for each photo — and the builder's
+  capacity estimate falls from 140 to 112 chars a row with it.
+- Nothing on the native side is lost: `mime` is still read for the HEIC check and kept in the
+  metadata cache, it is simply not serialised, and every remaining key is used by the grid, the
+  search haystack, the albums, the viewer or the details sheet.
+- `app/assets/index.html` changes by one line — the dead `mime:o.m` copy in `loadLibrary`. The
+  layout, the glass, the colours, the animations and every screen are untouched. `tools/test_suite.js`
+  gains two checks (91 now): one pins the seven keys, their order and the absence of `v`, `m` and
+  `count` on both sides of the bridge, the other loads a page fed exactly the new payload and shows
+  it still paints every tile and still fills Size and Resolution in the details sheet.
 
 ### 1.5.17 — day 7 of the 20-day optimisation plan, forty-ninth pass
 No UI change, no new features. Item 67 of the plan: the library JSON is built in one reusable
