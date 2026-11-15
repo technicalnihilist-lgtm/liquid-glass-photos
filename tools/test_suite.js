@@ -55,15 +55,23 @@ function library(n) {
   return items;
 }
 
-function stubFor(items, access) {
+/* trim=true builds the payload the 1.5.18 builder emits: rows without the dead v and m keys and
+   an envelope without the unread count. With trim falsy the output is byte-identical to before. */
+function stubFor(items, access, trim) {
+  const rows = trim
+    ? items.map((o) => ({ id: o.id, n: o.n, b: o.b, d: o.d, s: o.s, w: o.w, h: o.h }))
+    : items;
+  const payload = trim
+    ? 'JSON.stringify({items:ITEMS})'
+    : 'JSON.stringify({count:ITEMS.length,items:ITEMS})';
   return (
     '<script>(function(){const ITEMS=' +
-    JSON.stringify(items) +
+    JSON.stringify(rows) +
     ';window.AndroidNative={meta(){return JSON.stringify({sdk:34,device:"Pixel 8",android:"14",access:' +
     access +
     ',insetTop:74,insetBottom:48,light:false})},access(){return ' +
     access +
-    '},requestAccess(){},photos(){return JSON.stringify({count:ITEMS.length,items:ITEMS})},favs(){return "[]"},setFav(){},share(){},delete(){},pick(){},theme(){},setTilt(){}};})();</script>'
+    '},requestAccess(){},photos(){return ' + payload + '},favs(){return "[]"},setFav(){},share(){},delete(){},pick(){},theme(){},setTilt(){}};})();</script>'
   );
 }
 
@@ -1990,11 +1998,10 @@ function check(name, ok, detail) {
     /sb\.setLength\(0\);/.test(itemsFn) &&
     /appendQuoted\(sb, it\.name\)/.test(itemsFn) &&
     /appendQuoted\(sb, it\.bucket\)/.test(itemsFn) &&
-    /appendQuoted\(sb, it\.mime\)/.test(itemsFn) &&
     !/new StringBuilder\(/.test(itemsFn) &&
     !/\bq\(/.test(itemsFn) &&
     itemsFn.indexOf('jsonBuf.get()') < itemsFn.indexOf('sb.setLength(0)') &&
-    itemsFn.indexOf('sb.setLength(0)') < itemsFn.indexOf('"{\\"count\\":"') &&
+    itemsFn.indexOf('sb.setLength(0)') < itemsFn.indexOf('{\\"items\\":[') &&
     /if \(sb\.capacity\(\) > JSON_BUF_KEEP\) jsonBuf\.remove\(\);/.test(itemsFn));
 
   /* 89. Quoting writes into the caller's buffer. The old q() returned a new String per field and
@@ -2011,6 +2018,49 @@ function check(name, ok, detail) {
     /HEX_DIGITS\[\(ch >> 12\) & 0xF\]/.test(java) &&
     /"0123456789abcdef"\.toCharArray\(\)/.test(java) &&
     !/private static String q\(String s\)/.test(java));
+
+  /* 90. The payload carries only what the page reads. "v" was a hard-coded 0 that nothing looked
+         at, "m" was the mime type the page copied into its own record as p.mime and never read,
+         and the envelope's "count" was never read either - the page walks items. A row is now
+         id, n, b, d, s, w, h, in that order, and none of the three may come back. */
+  const keyAt = (k) => itemsFn.indexOf('\\"' + k + '\\":');
+  const ROW_KEYS = ['id', 'n', 'b', 'd', 's', 'w', 'h'];
+  check('native payload carries only the fields the page reads',
+    itemsFn.indexOf('{\\"items\\":[') >= 0 &&
+    !/count/.test(itemsFn) &&
+    !/it\.mime/.test(itemsFn) &&
+    !/"v"/.test(itemsFn) &&
+    ROW_KEYS.every((k) => keyAt(k) > 0) &&
+    ROW_KEYS.every((k, i, a) => i === 0 || keyAt(a[i - 1]) < keyAt(k)) &&
+    !/mime:o\.m/.test(asset) && !/p\.mime/.test(asset),
+    ROW_KEYS.length + ' keys');
+
+  /* 91. A payload shaped the new way still drives everything the old one drove: every tile
+         paints, the page's own records carry no mime key, and the details sheet still fills Size
+         and Resolution out of s, w and h. The stub keeps sending the dropped keys everywhere else
+         in this suite, so the page is pinned as indifferent to them in both directions. */
+  currentStub = stubFor(library(COUNT), 'true', true);
+  const trimPage = await browser.newPage();
+  trimPage.on('pageerror', (e) => errors.push(String(e && e.message)));
+  /* the checks above delete photos, and the Trash list lives in localStorage for this origin, so
+     the fresh page would paint COUNT minus those unless it starts from an empty Trash */
+  await trimPage.evaluateOnNewDocument(() => { try { localStorage.clear(); } catch (e) {} });
+  await trimPage.goto(base, { waitUntil: 'load' });
+  await trimPage.waitForFunction((n) => document.querySelectorAll('.tile').length === n, { timeout: 30000 }, COUNT);
+  const recKeys = await trimPage.evaluate(() => Object.keys(P[0]).sort().join(','));
+  await trimPage.click('.tile');
+  await trimPage.waitForSelector('.viewer [data-v="info"]', { timeout: 15000 });
+  await trimPage.evaluate(() => document.querySelector('.viewer [data-v="info"]').click());
+  await trimPage.waitForSelector('.sheet', { timeout: 10000 });
+  const sheetText = await trimPage.$eval('.sheet', (e) => e.textContent);
+  const trimTiles = await trimPage.$$eval('.tile', (n) => n.length);
+  check('a payload without v, m and count still paints the grid and the details sheet',
+    trimTiles === COUNT &&
+    recKeys === 'bucket,date,fav,h,id,kind,name,size,w' &&
+    /Size/.test(sheetText) && /Resolution/.test(sheetText) && /1080/.test(sheetText),
+    recKeys);
+  await trimPage.close();
+  currentStub = stubFor(library(COUNT), 'true');
 
   await browser.close();
   server.close();
