@@ -884,7 +884,20 @@ public class MainActivity extends Activity {
        per read and nothing per row. The buffer is held per thread so a second WebView (or any
        future off-thread caller) can never interleave into the same char[], and it is dropped after
        a read that needed more than JSON_BUF_KEEP chars, so a one-off huge library does not pin its
-       array for the life of the process. The bytes on the wire are unchanged. */
+       array for the life of the process.
+
+       68. The payload carried three fields the page never reads, and one of them was per row.
+       "v" was a hard-coded 0 with no reader anywhere in index.html, "m" was the mime type, which
+       the page copied into its own record as p.mime and then never looked at again (the grid, the
+       search haystack, the albums and the info sheet all work from the name, the bucket and the
+       dimensions), and the envelope's "count" was never read either - the page walks items. They
+       are gone: a row is now id, n, b, d, s, w, h. On a 6000-photo library the payload drops from
+       720167 to 583654 bytes (-19.0%, 22.75 bytes a row), which is paid on the bridge copy, the
+       WebView's parse and the page's own copy of every record on every read of the library. The
+       Item fields themselves stay - mime is still needed natively for the HEIC check and the
+       metadata cache, it just is not serialised. Nothing reads the dropped keys, so the page is
+       unaffected: the stubs in tools/test_suite.js still send v, m and count and the page ignores
+       them exactly as it ignored them before. */
     private static final int JSON_BUF_KEEP = 32 * 1024;
     private static final char[] HEX_DIGITS = "0123456789abcdef".toCharArray();
     private final ThreadLocal<StringBuilder> jsonBuf = new ThreadLocal<StringBuilder>() {
@@ -894,17 +907,15 @@ public class MainActivity extends Activity {
     private String itemsJson(List<Item> list) {
         StringBuilder sb = jsonBuf.get();
         sb.setLength(0);
-        int need = 64 + list.size() * 140;
+        int need = 48 + list.size() * 112;
         if (sb.capacity() < need) sb.ensureCapacity(need);
-        sb.append("{\"count\":").append(list.size()).append(",\"items\":[");
+        sb.append("{\"items\":[");
         for (int i = 0; i < list.size(); i++) {
             Item it = list.get(i);
             if (i > 0) sb.append(',');
-            sb.append("{\"id\":").append(it.id)
-                    .append(",\"v\":0");
+            sb.append("{\"id\":").append(it.id);
             sb.append(",\"n\":"); appendQuoted(sb, it.name);
             sb.append(",\"b\":"); appendQuoted(sb, it.bucket);
-            sb.append(",\"m\":"); appendQuoted(sb, it.mime);
             sb.append(",\"d\":").append(it.date)
                     .append(",\"s\":").append(it.size)
                     .append(",\"w\":").append(it.w)
