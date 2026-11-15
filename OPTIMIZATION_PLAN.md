@@ -412,7 +412,23 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
   checks (87 total) pinning 565 on both paths, the absence of any `ARGB_8888` request, the order of
   the allocator/policy calls ahead of `setTargetSize`, and the single JPEG/82 encode ahead of the
   cache write. *(1.5.16)*
-- [ ] 67. Avoid string concatenation in the JSON builder (use a reusable buffer).
+- [x] 67. Avoid string concatenation in the JSON builder (use a reusable buffer) — done: the payload
+  builder keeps one `StringBuilder` per thread and refills it in place. `itemsJson()` used to
+  allocate a fresh builder for the payload and, through `q()`, a fresh builder *and* a fresh String
+  for each of the three quoted fields of every row — three short-lived strings per photo, ~24000
+  allocations for a 6000-photo library, on every read of the library from the bridge thread — plus a
+  `Formatter` from `String.format` for any control character. Quoting now writes straight into the
+  caller's buffer (`appendQuoted`), the control-character escape is four lowercase hex digits
+  appended by hand from a static `HEX_DIGITS` table, and the buffer is released after a read that
+  needed more than 32 KB, so a one-off huge library cannot pin its array for the life of the
+  process. It is a `ThreadLocal` rather than a plain field because a shared builder would interleave
+  if a second WebView ever called in. The JSON itself is unchanged: the old `q()` and the new
+  `appendQuoted` were run side by side over 312 inputs (control characters, quotes, backslashes,
+  `\u0000`-`\u001f`, 2- and 4-byte UTF-8, real filenames) and produce identical bytes, so the page
+  parses exactly what it parsed before. `app/assets/index.html` is byte-identical to 1.5.16.
+  `tools/test_suite.js` gains two checks (89 total) pinning the per-thread buffer, the absence of
+  `q()`, `String.format` and `new StringBuilder` inside the builder, and the hand-written escape.
+  *(1.5.17)*
 - [ ] 68. Trim the JSON payload: drop fields the UI never reads.
 - [ ] 69. Verify no leak across 50 open/close cycles of the viewer.
 - [ ] 70. Add a debug counter of live bitmaps.
