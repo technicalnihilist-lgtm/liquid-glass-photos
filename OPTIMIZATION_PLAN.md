@@ -447,7 +447,28 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
   one pins the seven keys and their order and the absence of `v`, `m` and `count` on both sides of
   the bridge, the other loads a page fed exactly the new payload and proves it still paints every
   tile and still fills Size and Resolution in the details sheet. *(1.5.18)*
-- [ ] 69. Verify no leak across 50 open/close cycles of the viewer.
+- [x] 69. Verify no leak across 50 open/close cycles of the viewer — done, and it did leak. A new
+  harness, `tools/leak_probe.js`, opens and closes the viewer 50 times on a stubbed library and
+  reports what the page still holds after a forced GC (DOM nodes, detached `.viewer`/`.slide`
+  subtrees, images still carrying a `src`, window and document listeners, JS heap), with a
+  `--control` mode that runs the same loop without the open/close so the harness's own growth can be
+  subtracted. On 1.5.18 it reported a flat DOM but a heap that grew ~3 KB a cycle, and a heap
+  snapshot diff said why: **21 detached viewers after 20 cycles**, three slides and three images
+  each. The retainer path was `Window → HTMLDocument → MediaQueryMatcher → ViewportChangeListener →
+  img → .slide → .track → .stage → .viewer`: `closeViewer()` removed the viewer from the document
+  first and cleared the three slide `src`s afterwards, and an `<img>` that leaves the document with
+  its load still in flight stays registered in the document's viewport-change listener list, which
+  holds it and, through it, the whole subtree. A `WeakRef` to the just-closed viewer confirmed it
+  without DevTools — reachable in 20/20 cycles, against an unattached control div that was collected
+  every time. The fix is one statement reordered: the three `src`s are cleared while the subtree is
+  still in the document, `el.remove()` follows in the same task, so the loader cancels and
+  unregisters before the image leaves. After it: 0 retained viewers after 20 cycles, 0/20 WeakRefs
+  alive, DOM nodes 390 → 390 across 50 cycles, listeners 4/5 → 4/5. Nothing visible changes — the
+  0.3 s fade is over when the timer fires and no frame is painted between clearing a `src` and
+  removing the subtree. `app/assets/index.html` is otherwise byte-identical to 1.5.18.
+  `tools/test_suite.js` gains two checks (93 total): one drives 50 real open/close cycles and
+  requires the same node, tile and image count back with no `.viewer` and no `.slide` left behind,
+  the other pins the order inside `closeViewer` so the two statements cannot be swapped back. *(1.5.19)*
 - [ ] 70. Add a debug counter of live bitmaps.
 
 ## Day 8 — battery and sensors
