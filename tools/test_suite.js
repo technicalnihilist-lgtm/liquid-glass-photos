@@ -1082,6 +1082,32 @@ function check(name, ok, detail) {
     oomCatch > 0 && oomDrop > oomCatch && oomReturn > oomDrop &&
     /thumbCache\.clear\(\)/.test(dropFn) && /thumbCacheBytes = 0L/.test(dropFn));
 
+  /* 66. Thumbnails are decoded at RGB_565 on both paths, and must stay there: the factory path
+         asks for it outright, and the ImageDecoder path gets it from ALLOCATOR_SOFTWARE plus
+         MEMORY_POLICY_LOW_RAM (low-RAM is what makes the decoder pick 565 for an opaque image),
+         both set before setTargetSize. No path may ask for ARGB_8888: it would be twice the
+         bytes per in-flight thumb for a depth the encode throws away. And the encode that keeps
+         565's quantisation off the tile is pinned too - every thumb is JPEG at quality 82, in
+         exactly one place, before it is cached or served. Banding itself was measured, not
+         assumed: 565 rounds a channel by at most 4/255 (R, B) and 2/255 (G), the smooth-gradient
+         contours it would leave (8-level plateaus) do not survive JPEG/82 (widest step 3/255 on
+         the same row, against 2/255 for an 8-bit source), and the wire format is JPEG anyway, so
+         the missing alpha channel costs nothing. */
+  const factory66 = (java.match(/private Bitmap decodeThumbFactory\([\s\S]*?\n    \}/) || [''])[0];
+  const header66 = (java.match(/private static final class ThumbHeader[\s\S]*?\n    \}/) || [''])[0];
+  const imgDec66 = (java.match(/private Bitmap decodeThumbImageDecoder\([\s\S]*?\n    \}/) || [''])[0];
+  check('thumbs decode at RGB_565 on both paths, with nothing asking for ARGB_8888',
+    /o\.inPreferredConfig = Bitmap\.Config\.RGB_565;/.test(factory66) &&
+    !/ARGB_8888/.test(java) &&
+    /setAllocator\(ImageDecoder\.ALLOCATOR_SOFTWARE\)/.test(header66) &&
+    /setMemorySizePolicy\(ImageDecoder\.MEMORY_POLICY_LOW_RAM\)/.test(header66) &&
+    header66.indexOf('ALLOCATOR_SOFTWARE') < header66.indexOf('setTargetSize') &&
+    /ImageDecoder\.decodeBitmap\(src, new ThumbHeader\(max\)\)/.test(imgDec66));
+  check('every thumb is encoded JPEG/82 in one place before it is cached or served',
+    /bmp\.compress\(Bitmap\.CompressFormat\.JPEG, 82, bo\);/.test(thumbFn) &&
+    (java.match(/CompressFormat\.JPEG, 82, bo/g) || []).length === 1 &&
+    thumbFn.indexOf('compress(Bitmap.CompressFormat.JPEG, 82, bo)') < thumbFn.indexOf('cacheThumb(key, bytes)'));
+
   /* 61. The byte budget has to be held, and the peak has to be visible: the memory cache keeps
          a high-water mark next to its current size and logs it as it climbs (never per thumb),
          the eviction pass runs before the peak is taken so the logged number is what is really
