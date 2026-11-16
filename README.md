@@ -81,9 +81,9 @@ If you like our work, you can support us with a donation. We are bringing this v
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.5.22, 122 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.5.23, 122 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.5.22 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.5.23 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -174,7 +174,7 @@ build.sh                                    full APK pipeline without Gradle
 tools/make_icons.py                         launcher icon generator
 tools/gen_preview.py                        preview harness (see below)
 tools/bench_first_frame.js                  first-frame benchmark on a 2000-photo library
-tools/test_suite.js                         the puppeteer regression suite (100 checks)
+tools/test_suite.js                         the puppeteer regression suite (102 checks)
 tools/leak_probe.js                         open/close the viewer N times and report what the page still holds
 docs/screenshots/                           screenshots
 ```
@@ -184,6 +184,29 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.5.23 — day 8 of the 20-day optimisation plan, fifty-fifth pass
+No UI change, no new features. Item 73 of the plan: the tilt timer stops while the page is hidden.
+- With **4D motion** on, the page started a 60 ms `setInterval(paintTilt)` from `applySettings()`
+  and nothing but the next settings change ever cleared it. The drift it draws is a pure function of
+  a counter, so a page that went hidden — the activity paused, which native already forwards to the
+  WebView with `web.onPause()` — kept waking the UI thread about seventeen times a second to write
+  `--tx`/`--ty` onto a surface nobody can see, and threw every frame away.
+- The timer now has one door and one switch. `startDrift()` is the only place the interval is
+  created, and it refuses to run unless 4D motion is on *and* the page is visible; `stopDrift()` is
+  the only place it is cleared; a `visibilitychange` listener drives both, so hidden means no
+  interval at all and visible means it comes back at the same 60 ms, with the same `DRIFT` counter
+  and the same `--tx`/`--ty` it was holding. `applySettings()` routes through the same pair, so
+  flipping a switch while the page is hidden cannot resurrect the timer either.
+- No native change: `MainActivity` already calls `web.onPause()`/`web.onResume()`, and that is what
+  raises `document.hidden` in the WebView, so the page sees exactly the hide the accelerometer does.
+  Nothing on screen changes — there is nothing to see while the page is hidden, and the drift
+  resumes from the value it stopped on. `tools/test_suite.js` gains two checks (102 total, all
+  PASS): one pins the single `setInterval(paintTilt,60)` inside `startDrift()`, its
+  `driftTimer||!ST.motion||document.hidden` guard, the clear-and-null in `stopDrift()`, the
+  `applySettings()` call site and the `visibilitychange` wiring; the other hides a live page and
+  reads `--tx` before and after — it moves while visible, is frozen while hidden, and moves again
+  the moment the page is visible.
 
 ### 1.5.22 — day 8 of the 20-day optimisation plan, fifty-fourth pass
 No UI change, no new features. Item 72 of the plan: the accelerometer is unregistered on `onStop`,
