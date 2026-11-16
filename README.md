@@ -81,9 +81,9 @@ If you like our work, you can support us with a donation. We are bringing this v
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.5.20, 122 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.5.22, 122 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.5.20 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.5.22 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -174,7 +174,7 @@ build.sh                                    full APK pipeline without Gradle
 tools/make_icons.py                         launcher icon generator
 tools/gen_preview.py                        preview harness (see below)
 tools/bench_first_frame.js                  first-frame benchmark on a 2000-photo library
-tools/test_suite.js                         the puppeteer regression suite (98 checks)
+tools/test_suite.js                         the puppeteer regression suite (100 checks)
 tools/leak_probe.js                         open/close the viewer N times and report what the page still holds
 docs/screenshots/                           screenshots
 ```
@@ -184,6 +184,30 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.5.22 — day 8 of the 20-day optimisation plan, fifty-fourth pass
+No UI change, no new features. Item 72 of the plan: the accelerometer is unregistered on `onStop`,
+not only on `onPause`.
+- `onPause()` dropped the tilt listener and `onResume()` put it back, which is the right pair for a
+  dialog or the photo picker sitting on top of the grid — but it left one hole. The page can call
+  `setTilt(depth, motion)` at any moment, and that call registered the listener whenever the depth
+  effect was on, without asking whether the activity was still on screen. A setting pushed while
+  the app was in the background (a reload that replays the setting, a queued bridge call landing
+  after the pause) therefore put the accelerometer back on and nothing dropped it again until the
+  next resume/pause round trip: the sensor ran behind a screen nobody was looking at.
+- The sensor's lifetime is now the window's lifetime. One flag, `started`, is raised in `onStart()`
+  and cleared in `onStop()`; `startTilt()` refuses to register unless it is up, the `setTilt`
+  runnable is gated on it too, and `onStop()` drops the listener itself, so both ways out of the
+  foreground unregister. The flag is cleared *before* the unregister, so a registration already
+  queued on the UI thread finds the gate shut and does nothing. `onStart()` only re-opens the gate
+  and never touches the sensor, so a resume still registers exactly as before, at the rate the
+  motion setting asks for.
+- `app/assets/index.html` is byte-identical to 1.5.21 — nothing on screen changes, because there
+  is nothing to see while the window is stopped. `tools/test_suite.js` gains two checks (100 total,
+  all PASS): one pins the flag, the gate in `startTilt()` and the `setTilt` runnable, and the
+  clear-before-unregister order in `onStop()`; the other proves the gate is the only door — one
+  `registerListener` call site in the whole file, a resume that still registers, and a pause and a
+  stop that both drop the listener without opening a second path to the sensor.
 
 ### 1.5.21 — day 8 of the 20-day optimisation plan, fifty-third pass
 No UI change, no new features. Item 71 of the plan: a lower accelerometer rate when 4D motion is off.
