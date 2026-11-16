@@ -264,7 +264,7 @@ function applySettings(){
   document.body.classList.toggle('d4',!!ST.motion);
   try{localStorage.setItem('lgp',JSON.stringify(ST))}catch(e){}
   if(N&&N.theme){try{N.theme(!!ST.light)}catch(e){}}
-  if(N&&N.setTilt){try{N.setTilt(!!ST.depth)}catch(e){}}
+  if(N&&N.setTilt){try{N.setTilt(!!ST.depth,!!ST.motion)}catch(e){}}
   if(ST.motion&&!driftTimer)driftTimer=setInterval(paintTilt,60);
   if(!ST.motion&&driftTimer){clearInterval(driftTimer);driftTimer=null}
   if(!ST.motion)paintTilt();
