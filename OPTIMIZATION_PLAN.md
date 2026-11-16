@@ -469,7 +469,21 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
   `tools/test_suite.js` gains two checks (93 total): one drives 50 real open/close cycles and
   requires the same node, tile and image count back with no `.viewer` and no `.slide` left behind,
   the other pins the order inside `closeViewer` so the two statements cannot be swapped back. *(1.5.19)*
-- [ ] 70. Add a debug counter of live bitmaps.
+- [x] 70. Add a debug counter of live bitmaps. *(1.5.20)*
+  Every `Bitmap` the decode path allocates is counted as it leaves a decoder and counted back out
+  when it is recycled, so logcat carries the number alive now and the highest number ever alive at
+  once — the peak is what a low-memory kill is decided on. Both are static `AtomicInteger`s because
+  decodes arrive on more than one thread, the peak is published through a compare-and-set loop and
+  logged once per climb rather than per thumbnail, and `recycleTracked()` reads `isRecycled()` first
+  so a second recycle of the same object cannot take the count below zero. The count is "allocated
+  minus recycled" on purpose: a frame dropped without `recycle()` is what this is for, and it stays
+  visible as live instead of vanishing. The `createScaledBitmap` branch counts only the object it
+  really got back, since that call returns its input when the size already matches. Nothing on
+  screen changes and `app/assets/index.html` is byte-identical to 1.5.19. `tools/test_suite.js`
+  gains two checks (95 total): one requires every allocation site in the decode path to be wrapped,
+  every recycle to go through the helper (exactly one bare `.recycle()` in the file, inside it) and
+  the scaled branch to count only a new object, the other pins the underflow guard, the
+  compare-and-set peak and the single `bitmaps live` log site.
 
 ## Day 8 — battery and sensors
 
