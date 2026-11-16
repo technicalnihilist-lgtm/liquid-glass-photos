@@ -505,7 +505,24 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
   unregister-before-register order, the two-boolean signature and the pref; one pins the page's one
   `setTilt` call site; the third taps the real 4D-motion switch and then the depth switch on a
   stubbed library and reads what reached native — `[true,true] -> [true,false] -> [false,false]`.
-- [ ] 72. Unregister the sensor on `onStop`, not just `onPause`.
+- [x] 72. Unregister the sensor on `onStop`, not just `onPause`. *(1.5.22)*
+  `onPause()` dropped the tilt listener and `onResume()` restored it, which is the right pair for a
+  dialog or the picker sitting on top of the grid, but the page can call `setTilt(depth, motion)`
+  at any moment and that call registered the listener whenever depth was on — without asking
+  whether the activity was still visible. A setting pushed while the app was in the background put
+  the accelerometer back on and nothing dropped it again until the next resume/pause round trip, so
+  the sensor ran behind a screen nobody was looking at. The sensor's lifetime is now the window's
+  lifetime: one flag, `started`, raised in `onStart()` and cleared in `onStop()`; `startTilt()`
+  refuses to register unless it is up, the `setTilt` runnable is gated on it as well, and
+  `onStop()` drops the listener itself, so both ways out of the foreground unregister. The flag is
+  cleared before the unregister, so a registration already queued on the UI thread finds the gate
+  shut and does nothing; `onStart()` only re-opens the gate and never touches the sensor, so a
+  resume registers exactly as before at the rate the motion setting asks for.
+  `app/assets/index.html` is byte-identical to 1.5.21, since nothing is visible while the window is
+  stopped. `tools/test_suite.js` gains two checks (100 total): one pins the flag, the gate in
+  `startTilt()` and in the `setTilt` runnable, and the clear-before-unregister order in `onStop()`;
+  the other proves the gate is the only door — a single `registerListener` call site in the file, a
+  resume that still registers, and a pause and a stop that both drop the listener.
 - [ ] 73. Stop the tilt timer when the page is hidden.
 - [ ] 74. Reduce bridge calls to at most 20/s (currently ~30/s).
 - [ ] 75. Re-baseline the tilt after a long idle so it does not drift.
