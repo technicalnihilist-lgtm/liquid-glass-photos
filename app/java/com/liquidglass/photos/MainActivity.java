@@ -340,6 +340,10 @@ public class MainActivity extends Activity {
        the parallax. Motion off means the drift is stopped and the page repaints only when a real
        tilt arrives, so SENSOR_DELAY_UI is enough: the same parallax, half the wakeups. */
     private boolean motionOn = true;
+    /* 72. Whether this activity is between onStart and onStop, i.e. whether the user can see it.
+       The sensor may only be registered inside that window: pause alone is not enough, because a
+       bridge call from the page can arrive while the app is stopped and register it again. */
+    private boolean started;
     private long lastTiltPush = 0L;
     private float baseX = Float.NaN, baseY = Float.NaN;
 
@@ -382,7 +386,7 @@ public class MainActivity extends Activity {
             sensors = (SensorManager) getSystemService(SENSOR_SERVICE);
             if (sensors != null) accel = sensors.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
         }
-        if (sensors != null && accel != null && tiltOn) {
+        if (sensors != null && accel != null && tiltOn && started) {
             baseX = Float.NaN;
             baseY = Float.NaN;
             /* A listener is registered at the rate it was given, so switching rate is an
@@ -1683,7 +1687,9 @@ public class MainActivity extends Activity {
             prefs.edit().putBoolean("tilt", on).putBoolean("motion", motion).apply();
             runOnUiThread(new Runnable() {
                 public void run() {
-                    if (tiltOn) startTilt();
+                    /* started, not tiltOn, decides: a setting pushed while the app is stopped
+                       must not put the accelerometer back on for a screen nobody is looking at. */
+                    if (tiltOn && started) startTilt();
                     else stopTilt();
                 }
             });
@@ -1864,6 +1870,14 @@ public class MainActivity extends Activity {
     @Override
     protected void onStop() {
         super.onStop();
+        /* 72. The sensor's lifetime is the visible window's lifetime. onPause already drops it, but
+           onPause is only one of the two ways out — and nothing stopped a page-driven setTilt
+           from registering the listener again once the app was stopped. From here until onStart
+           startTilt() refuses to register, so the accelerometer cannot be left running behind a
+           screen that is gone. The flag is cleared before the unregister, so a registration that
+           is already queued on the UI thread finds it down and does nothing. */
+        started = false;
+        stopTilt();
         uiHandler.removeCallbacks(freeMediaOnBackground);
         uiHandler.postDelayed(freeMediaOnBackground, MEDIA_LIST_BG_FREE_MS);
     }
@@ -1871,6 +1885,9 @@ public class MainActivity extends Activity {
     @Override
     protected void onStart() {
         super.onStart();
+        /* the window is visible again; onResume() (or the next setTilt) does the registering, so
+           this only re-opens the gate and never touches the sensor itself */
+        started = true;
         uiHandler.removeCallbacks(freeMediaOnBackground);
     }
 
