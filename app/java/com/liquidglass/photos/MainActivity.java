@@ -334,6 +334,12 @@ public class MainActivity extends Activity {
     private SensorManager sensors;
     private Sensor accel;
     private boolean tiltOn = true;
+    /* 71. The page's 4D-motion setting decides how often the accelerometer has to be read. Motion
+       on means the idle drift repaints the depth layers every 60 ms whatever the sensor says, so
+       the sensor is registered at SENSOR_DELAY_GAME and its events are the only input that moves
+       the parallax. Motion off means the drift is stopped and the page repaints only when a real
+       tilt arrives, so SENSOR_DELAY_UI is enough: the same parallax, half the wakeups. */
+    private boolean motionOn = true;
     private long lastTiltPush = 0L;
     private float baseX = Float.NaN, baseY = Float.NaN;
 
@@ -366,6 +372,11 @@ public class MainActivity extends Activity {
         }
     };
 
+    /** The sensor rate this process should be running at right now. */
+    private int tiltRate() {
+        return motionOn ? SensorManager.SENSOR_DELAY_GAME : SensorManager.SENSOR_DELAY_UI;
+    }
+
     private void startTilt() {
         if (sensors == null) {
             sensors = (SensorManager) getSystemService(SENSOR_SERVICE);
@@ -374,7 +385,14 @@ public class MainActivity extends Activity {
         if (sensors != null && accel != null && tiltOn) {
             baseX = Float.NaN;
             baseY = Float.NaN;
-            sensors.registerListener(tiltListener, accel, SensorManager.SENSOR_DELAY_GAME);
+            /* A listener is registered at the rate it was given, so switching rate is an
+               unregister + register. Dropped first, so the setting can only ever leave one
+               registration behind and never two at different rates. */
+            try {
+                sensors.unregisterListener(tiltListener);
+            } catch (Exception ignored) {
+            }
+            sensors.registerListener(tiltListener, accel, tiltRate());
         }
     }
 
@@ -491,6 +509,7 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         prefs = getSharedPreferences("lgp", MODE_PRIVATE);
         tiltOn = prefs.getBoolean("tilt", true);
+        motionOn = prefs.getBoolean("motion", true);
 
         Window w = getWindow();
         w.setStatusBarColor(Color.TRANSPARENT);
@@ -1658,9 +1677,10 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
-        public void setTilt(boolean on) {
+        public void setTilt(boolean on, boolean motion) {
             tiltOn = on;
-            prefs.edit().putBoolean("tilt", on).apply();
+            motionOn = motion;
+            prefs.edit().putBoolean("tilt", on).putBoolean("motion", motion).apply();
             runOnUiThread(new Runnable() {
                 public void run() {
                     if (tiltOn) startTilt();
