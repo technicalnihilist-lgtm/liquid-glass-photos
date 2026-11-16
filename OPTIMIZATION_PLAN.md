@@ -542,7 +542,21 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
   guard, the clear-and-null in `stopDrift()`, the `applySettings()` call site and the
   `visibilitychange` wiring; the other hides a live page, waits, and reads `--tx` before and after —
   it moves while visible, is frozen while hidden, and moves again the moment the page is visible.
-- [ ] 74. Reduce bridge calls to at most 20/s (currently ~30/s).
+- [x] 74. Reduce bridge calls to at most 20/s (currently ~30/s). *(1.5.24)*
+  `SENSOR_DELAY_GAME` hands the listener an accelerometer event every 20 ms, and the gate in
+  `onSensorChanged` let one through every 33 ms — roughly 30 `evaluateJavascript` calls a second,
+  each a `String.format`, a JNI hop and a script compile in the WebView, feeding a parallax the
+  page repaints at most every 60 ms anyway. The gate is now the named constant `TILT_PUSH_MS = 50L`,
+  checked before any of that work is done, so the tilt crosses the bridge at most 20 times a second
+  at the fastest rate the sensor can ask for — still faster than the 60 ms drift the page paints
+  at, and shorter than `SENSOR_DELAY_UI`'s 60 ms period, so with 4D motion off the gate cannot drop
+  a real tilt event either. The page is untouched (`app/assets/index.html` is byte-identical to
+  1.5.23): the same parallax, from the same values, at a rate it can actually show. The sensor
+  rates, the registration rules and the string itself are unchanged, so nothing else moves.
+  `tools/test_suite.js` gains two checks (104 total): one pins the constant, the gate before the
+  `String.format`, the single `eval` in the listener and the single place the tilt string is built;
+  the other does the arithmetic against both sensor rates and the page's 60 ms drift, so the
+  number cannot drift out of the window it has to sit in.
 - [ ] 75. Re-baseline the tilt after a long idle so it does not drift.
 - [ ] 76. Skip tilt pushes while a sheet is open (nothing visible moves).
 - [ ] 77. Use `SENSOR_DELAY_UI` when the battery is low.

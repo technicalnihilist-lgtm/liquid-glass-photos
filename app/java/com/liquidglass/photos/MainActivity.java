@@ -344,6 +344,13 @@ public class MainActivity extends Activity {
        The sensor may only be registered inside that window: pause alone is not enough, because a
        bridge call from the page can arrive while the app is stopped and register it again. */
     private boolean started;
+    /* 74. How often the tilt may cross the bridge. SENSOR_DELAY_GAME delivers an accelerometer
+       event every 20 ms, and the gate below used to let one through every 33 ms, so a still phone
+       still cost about 30 evaluateJavascript calls a second — each one a string format, a JNI hop
+       and a script compile in the WebView, for a parallax that the page repaints at most every
+       60 ms anyway. One push per 50 ms is 20/s at the fastest rate the sensor can ask for, still
+       twice the rate the page can show it, and the UI is untouched: same parallax, same feel. */
+    private static final long TILT_PUSH_MS = 50L;
     private long lastTiltPush = 0L;
     private float baseX = Float.NaN, baseY = Float.NaN;
 
@@ -351,7 +358,7 @@ public class MainActivity extends Activity {
         @Override
         public void onSensorChanged(SensorEvent e) {
             long now = System.currentTimeMillis();
-            if (now - lastTiltPush < 33) return;
+            if (now - lastTiltPush < TILT_PUSH_MS) return;
             lastTiltPush = now;
             float ax = e.values[0];
             float ay = e.values[1];

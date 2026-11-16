@@ -81,9 +81,9 @@ If you like our work, you can support us with a donation. We are bringing this v
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.5.23, 122 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.5.24, 122 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.5.23 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.5.24 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -174,7 +174,7 @@ build.sh                                    full APK pipeline without Gradle
 tools/make_icons.py                         launcher icon generator
 tools/gen_preview.py                        preview harness (see below)
 tools/bench_first_frame.js                  first-frame benchmark on a 2000-photo library
-tools/test_suite.js                         the puppeteer regression suite (102 checks)
+tools/test_suite.js                         the puppeteer regression suite (104 checks)
 tools/leak_probe.js                         open/close the viewer N times and report what the page still holds
 docs/screenshots/                           screenshots
 ```
@@ -184,6 +184,21 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.5.24 — day 8 of the 20-day optimisation plan, fifty-sixth pass
+No UI change, no new features. Item 74 of the plan: the tilt crosses the bridge at most 20 times a
+second instead of about 30.
+- `SENSOR_DELAY_GAME` delivers an accelerometer event every 20 ms and the gate in
+  `onSensorChanged` passed one every 33 ms, so a still phone still cost roughly 30
+  `evaluateJavascript` calls a second — each one a `String.format`, a JNI hop and a script compile
+  in the WebView, for a parallax the page repaints at most every 60 ms.
+- The gate is now one named constant, `TILT_PUSH_MS = 50L`, checked before any of that work runs:
+  20 pushes a second at the fastest rate the sensor can ask for. It is still faster than the page's
+  60 ms drift and shorter than `SENSOR_DELAY_UI`'s 60 ms period, so 4D motion off loses no real
+  tilt event. `app/assets/index.html` is byte-identical to 1.5.23 — same parallax, same feel.
+- `tools/test_suite.js` gains two checks (104 total, all PASS): one pins the constant, the gate
+  ahead of the `String.format`, the single `eval` and the single tilt string; the other checks the
+  rate against both sensor periods and the page's drift interval.
 
 ### 1.5.23 — day 8 of the 20-day optimisation plan, fifty-fifth pass
 No UI change, no new features. Item 73 of the plan: the tilt timer stops while the page is hidden.

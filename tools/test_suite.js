@@ -2299,6 +2299,37 @@ function check(name, ok, detail) {
     txHidden2 + ', visible again ' + txVisible3);
   await visPage.close();
 
+  /* 103. Item 74: the tilt used to cross the bridge every 33 ms - about 30 evaluateJavascript
+          calls a second at SENSOR_DELAY_GAME's 20 ms event period, each one a String.format, a
+          JNI hop and a script compile, for a parallax the page repaints at most every 60 ms. The
+          gate is now one named constant, checked before any work is done, and the string is still
+          built in exactly one place, so the tilt is the only periodic bridge call in the file. */
+  const sensorFn = (java.match(/public void onSensorChanged\(SensorEvent e\)[\s\S]*?\n        \}/) || [''])[0];
+  check('the tilt crosses the bridge at most 20 times a second, from one gate',
+    /private static final long TILT_PUSH_MS = 50L;/.test(java) &&
+    /if \(now - lastTiltPush < TILT_PUSH_MS\) return;/.test(sensorFn) &&
+    sensorFn.indexOf('TILT_PUSH_MS') < sensorFn.indexOf('String.format') &&
+    sensorFn.indexOf('lastTiltPush = now;') > sensorFn.indexOf('TILT_PUSH_MS') &&
+    (sensorFn.match(/eval\(/g) || []).length === 1 &&
+    (java.match(/window\.__native&&window\.__native\.tilt/g) || []).length === 1 &&
+    (java.match(/lastTiltPush = now;/g) || []).length === 1);
+
+  /* 104. And the number holds up arithmetically against both sensor rates: 50 ms is 20 pushes a
+          second at the fastest rate the sensor can ask for, and it is shorter than the slowest
+          event period (SENSOR_DELAY_UI, 60 ms), so the gate can never drop a real tilt event and
+          the parallax still moves faster than the 60 ms drift the page paints at. */
+  const pushMs = parseInt((java.match(/TILT_PUSH_MS = (\d+)L/) || [])[1] || '0', 10);
+  const gameMs = 20, uiMs = 60, driftMs = parseInt(
+    (pageTilt.match(/DRIFT[\s\S]{0,200}?setInterval\(paintTilt,(\d+)\)/) || [])[1] ||
+    (pageTilt.match(/setInterval\(paintTilt,(\d+)\)/) || [])[1] || '0', 10);
+  check('20 pushes a second is still faster than the page repaints, and never starves the sensor',
+    pushMs > 0 && 1000 / pushMs <= 20 &&
+    pushMs < gameMs * 3 &&
+    pushMs < uiMs &&
+    driftMs > 0 && pushMs < driftMs,
+    pushMs + ' ms -> ' + (pushMs ? 1000 / pushMs : 0) + '/s, sensor ' + gameMs + '/' + uiMs +
+    ' ms, drift ' + driftMs + ' ms');
+
   await browser.close();
   server.close();
 
