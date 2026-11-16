@@ -523,7 +523,25 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
   `startTilt()` and in the `setTilt` runnable, and the clear-before-unregister order in `onStop()`;
   the other proves the gate is the only door — a single `registerListener` call site in the file, a
   resume that still registers, and a pause and a stop that both drop the listener.
-- [ ] 73. Stop the tilt timer when the page is hidden.
+- [x] 73. Stop the tilt timer when the page is hidden. *(1.5.23)*
+  With **4D motion** on, `applySettings()` started a 60 ms `setInterval(paintTilt)` and only the
+  next settings change ever cleared it, so a page that went hidden kept waking the UI thread
+  roughly seventeen times a second to move `--tx`/`--ty` on a surface nobody can see — the drift
+  is a pure function of a counter, so every one of those frames was computed, written and thrown
+  away. The timer now has one door and one switch: `startDrift()` is the only place the interval is
+  created and it refuses to run unless 4D motion is on *and* the page is visible, `stopDrift()` is
+  the only place it is cleared, and a `visibilitychange` listener drives both, so hidden means no
+  interval at all and visible means it comes back at the same 60 ms with the same `DRIFT` counter
+  and the same `--tx`/`--ty` it was holding. `applySettings()` routes through the same pair, so a
+  settings change while the page is hidden no longer resurrects the timer either. No native change
+  was needed: the activity already calls `web.onPause()`/`web.onResume()`, which is what makes
+  `document.hidden` true in the WebView, so the page sees the same hide the sensor does. The UI is
+  untouched — nothing is visible while the page is hidden, and on return the drift resumes from the
+  value it stopped on. `tools/test_suite.js` gains two checks (102 total): one pins the single
+  `setInterval(paintTilt,60)` inside `startDrift()`, its `driftTimer||!ST.motion||document.hidden`
+  guard, the clear-and-null in `stopDrift()`, the `applySettings()` call site and the
+  `visibilitychange` wiring; the other hides a live page, waits, and reads `--tx` before and after —
+  it moves while visible, is frozen while hidden, and moves again the moment the page is visible.
 - [ ] 74. Reduce bridge calls to at most 20/s (currently ~30/s).
 - [ ] 75. Re-baseline the tilt after a long idle so it does not drift.
 - [ ] 76. Skip tilt pushes while a sheet is open (nothing visible moves).
