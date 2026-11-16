@@ -265,13 +265,21 @@ function applySettings(){
   try{localStorage.setItem('lgp',JSON.stringify(ST))}catch(e){}
   if(N&&N.theme){try{N.theme(!!ST.light)}catch(e){}}
   if(N&&N.setTilt){try{N.setTilt(!!ST.depth,!!ST.motion)}catch(e){}}
-  if(ST.motion&&!driftTimer)driftTimer=setInterval(paintTilt,60);
-  if(!ST.motion&&driftTimer){clearInterval(driftTimer);driftTimer=null}
+  if(ST.motion)startDrift();else stopDrift();
   if(!ST.motion)paintTilt();
 }
 
 /* ---------- depth / 4D engine ---------- */
 let SENSOR={x:0,y:0}, DRIFT=0, driftTimer=null, lastTx=99, lastTy=99;
+function startDrift(){
+  if(driftTimer||!ST.motion||document.hidden)return;
+  driftTimer=setInterval(paintTilt,60);
+}
+function stopDrift(){
+  if(!driftTimer)return;
+  clearInterval(driftTimer);driftTimer=null;
+}
+document.addEventListener('visibilitychange',()=>{if(document.hidden)stopDrift();else startDrift()});
 function paintTilt(){
   let x=ST.depth?SENSOR.x:0, y=ST.depth?SENSOR.y:0;
   if(ST.motion&&!window.__still){
