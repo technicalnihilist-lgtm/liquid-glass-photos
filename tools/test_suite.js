@@ -2240,6 +2240,65 @@ function check(name, ok, detail) {
     !/registerListener/.test(onResumeFn) && !/registerListener/.test(onPauseFn) &&
     (java.match(/startTilt\(\);/g) || []).length === 2);
 
+  /* 101. Item 73: the 60 ms drift timer used to be started by applySettings and stopped only by
+          the next settings change, so a page that went hidden (the activity paused — native
+          already calls web.onPause(), which is what raises document.hidden here) kept waking the
+          UI thread four hundred times a minute to move --tx/--ty on a surface nobody can see.
+          The timer now lives behind one door, startDrift(), which refuses to run unless 4D
+          motion is on and the page is visible, and one switch, stopDrift(), which the
+          visibilitychange listener drives in both directions, so a hidden page has no interval
+          at all and a visible one gets it back at the same 60 ms. */
+  const driftStartFn = (pageTilt.match(/function startDrift\(\)[\s\S]*?\n\}/) || [''])[0];
+  const driftStopFn = (pageTilt.match(/function stopDrift\(\)[\s\S]*?\n\}/) || [''])[0];
+  const driftApply = (pageTilt.match(/if\(ST\.motion\)startDrift\(\);else stopDrift\(\);/) || [''])[0];
+  check('the drift timer only exists while the page is visible and 4D motion is on',
+    (pageTilt.match(/setInterval\(paintTilt,60\)/g) || []).length === 1 &&
+    /setInterval\(paintTilt,60\)/.test(driftStartFn) &&
+    /if\(driftTimer\|\|!ST\.motion\|\|document\.hidden\)return;/.test(driftStartFn) &&
+    /clearInterval\(driftTimer\);driftTimer=null;/.test(driftStopFn) &&
+    !!driftApply &&
+    /document\.addEventListener\('visibilitychange',\(\)=>\{if\(document\.hidden\)stopDrift\(\);else startDrift\(\)\}\)/.test(pageTilt) &&
+    !/setInterval\(paintTilt/.test(pageTilt.replace(driftStartFn, '')));
+
+  /* 102. And it really stops: with the page visible the drift moves --tx, with the page hidden the
+          same interval is gone and --tx is frozen, and coming back visible restarts it at once
+          without a settings change. */
+  const visPage = await browser.newPage();
+  /* the earlier checks toggle settings, and the page keeps them in localStorage: start this page on
+     the stock defaults (4D motion and depth on) so the drift is meant to be running */
+  await visPage.evaluateOnNewDocument(() => {
+    try { localStorage.removeItem('lgp'); } catch (e) {}
+  });
+  await visPage.goto(base, { waitUntil: 'load' });
+  await visPage.waitForSelector('[data-act="settings"]', { timeout: 15000 });
+  await settle(400);
+  await visPage.evaluate(() => {
+    window.__hid = false;
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => window.__hid });
+  });
+  const tx = () => visPage.evaluate(() => document.documentElement.style.getPropertyValue('--tx'));
+  const setHidden = (h) => visPage.evaluate((v) => {
+    window.__hid = v;
+    document.dispatchEvent(new Event('visibilitychange'));
+  }, h);
+  const txVisible1 = await tx();
+  await settle(300);
+  const txVisible2 = await tx();
+  await setHidden(true);
+  const txHidden1 = await tx();
+  await settle(400);
+  const txHidden2 = await tx();
+  await setHidden(false);
+  await settle(300);
+  const txVisible3 = await tx();
+  check('a hidden page holds no drift timer, and a visible one gets it back',
+    txVisible1 !== txVisible2 &&
+    txHidden1 === txHidden2 &&
+    txVisible3 !== txHidden2,
+    'visible ' + txVisible1 + ' -> ' + txVisible2 + ', hidden ' + txHidden1 + ' -> ' +
+    txHidden2 + ', visible again ' + txVisible3);
+  await visPage.close();
+
   await browser.close();
   server.close();
 
