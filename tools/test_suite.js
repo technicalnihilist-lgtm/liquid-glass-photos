@@ -2110,6 +2110,43 @@ function check(name, ok, detail) {
     dropAt > 0 && removeAt > 0 && dropAt < removeAt);
   await leakPage.close();
 
+  /* 94. Item 70: the live-bitmap counter only tells the truth while it sees both halves of every
+         bitmap's life. So every allocation site in the decode path is wrapped and every recycle in
+         it goes through the one helper - one bare .recycle() left anywhere would make the number
+         drift, and the createScaledBitmap branch counts only the object it really got back, since
+         that call hands its input back when the size already matches. */
+  const trackFn = (java.match(/private static Bitmap trackBitmap\(Bitmap b\)[\s\S]*?\n    \}/) || [''])[0];
+  const recycleFn = (java.match(/private static void recycleTracked\(Bitmap b\)[\s\S]*?\n    \}/) || [''])[0];
+  const decodeImgFn = (java.match(/private Bitmap decodeThumbImageDecoder\([\s\S]*?\n    \}/) || [''])[0];
+  const decodeFacFn = (java.match(/private Bitmap decodeThumbFactory\([\s\S]*?\n    \}/) || [''])[0];
+  const thumbBody = (java.match(/private byte\[\] thumbnail\(long id\)[\s\S]*?\n    \}/) || [''])[0];
+  const bareRecycles = (java.match(/\.recycle\(\)/g) || []).length;
+  check('every bitmap the decode path allocates is counted and every recycle gives its slot back',
+    /private static final java\.util\.concurrent\.atomic\.AtomicInteger LIVE_BITMAPS/.test(java) &&
+    /private static final java\.util\.concurrent\.atomic\.AtomicInteger PEAK_BITMAPS/.test(java) &&
+    trackFn.length > 0 && recycleFn.length > 0 &&
+    /return trackBitmap\(ImageDecoder\.decodeBitmap\(src, new ThumbHeader\(max\)\)\);/.test(decodeImgFn) &&
+    (decodeFacFn.match(/trackBitmap\(BitmapFactory\.decodeStream/g) || []).length === 2 &&
+    /if \(sc != bmp\) \{\s*trackBitmap\(sc\);\s*recycleTracked\(bmp\);\s*\}/.test(thumbBody) &&
+    /\} finally \{\s*recycleTracked\(bmp\);\s*\}/.test(thumbBody) &&
+    bareRecycles === 1 && recycleFn.indexOf('b.recycle()') > 0 &&
+    !/\.recycle\(\)/.test(trackFn),
+    bareRecycles + ' bare recycle() call(s) in ' + java.length + ' chars of Java');
+
+  /* 95. And the two numbers cannot lie in the other direction: a second recycle of the same object
+         cannot take the live count below zero, the peak is published once per climb instead of on
+         every bitmap, and the counter is not logged per thumbnail - a debug counter that spams
+         logcat per tile would be worse than none. */
+  check('the live-bitmap counter cannot underflow and logs once per peak, not per tile',
+    recycleFn.indexOf('!b.isRecycled()') > 0 &&
+    recycleFn.indexOf('!b.isRecycled()') < recycleFn.indexOf('b.recycle()') &&
+    /if \(LIVE_BITMAPS\.decrementAndGet\(\) < 0\) \{\s*LIVE_BITMAPS\.set\(0\);/.test(recycleFn) &&
+    /while \(live > peak && !PEAK_BITMAPS\.compareAndSet\(peak, live\)\) peak = PEAK_BITMAPS\.get\(\);/.test(trackFn) &&
+    /"bitmaps live " \+ live \+ " peak " \+ live/.test(trackFn) &&
+    (java.match(/bitmaps live/g) || []).length === 1 &&
+    !/bitmaps live/.test(thumbBody) && !/bitmaps live/.test(decodeFacFn) &&
+    !/bitmaps live/.test(decodeImgFn));
+
   await browser.close();
   server.close();
 
