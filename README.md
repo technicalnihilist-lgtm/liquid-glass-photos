@@ -81,9 +81,9 @@ If you like our work, you can support us with a donation. We are bringing this v
 
 ## Download
 
-**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.5.19, 122 KB, signed, min Android 7.0 (API 24), target API 34.
+**[LiquidGlassPhotos.apk](LiquidGlassPhotos.apk)** — v1.5.20, 122 KB, signed, min Android 7.0 (API 24), target API 34.
 
-Or download it from the [v1.5.19 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
+Or download it from the [v1.5.20 release](https://github.com/technicalnihilist-lgtm/liquid-glass-photos/releases/latest).
 
 Install it on a phone (enable "install unknown apps" for your file manager), then grant photo access when prompted.
 
@@ -174,7 +174,7 @@ build.sh                                    full APK pipeline without Gradle
 tools/make_icons.py                         launcher icon generator
 tools/gen_preview.py                        preview harness (see below)
 tools/bench_first_frame.js                  first-frame benchmark on a 2000-photo library
-tools/test_suite.js                         the puppeteer regression suite (93 checks)
+tools/test_suite.js                         the puppeteer regression suite (95 checks)
 tools/leak_probe.js                         open/close the viewer N times and report what the page still holds
 docs/screenshots/                           screenshots
 ```
@@ -184,6 +184,30 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.5.20 — day 7 of the 20-day optimisation plan, fifty-second pass
+No UI change, no new features. Item 70 of the plan: a debug counter of live bitmaps.
+- Every `Bitmap` the decode path allocates is counted as it leaves a decoder (`trackBitmap`) and
+  counted back out when it is recycled (`recycleTracked`), so logcat now carries two numbers the
+  process never reported before: how many bitmaps are alive right now, and the highest number that
+  has ever been alive at once. The peak is the one that matters — it is what a low-memory kill is
+  decided on, and until now it had to be guessed at from the cache high-water marks.
+- Both counters are static `AtomicInteger`s, because decodes arrive on more than one thread. The
+  peak is published through a compare-and-set loop and logged once per climb, never per thumbnail,
+  so the log stays as quiet as it was.
+- The count is "allocated minus recycled" rather than a reference count on purpose: a frame dropped
+  without `recycle()` is exactly what this is meant to catch, and it stays visible here as live
+  instead of vanishing. `recycleTracked` reads `isRecycled()` before it recycles, so a second
+  recycle of the same object — a `finally` that runs after a path which already dropped it — cannot
+  take the live count below zero. The `createScaledBitmap` branch counts only the object it really
+  got back, because that call hands its input back when the size already matches.
+- `app/assets/index.html` is byte-identical to 1.5.19 and nothing on screen changes: no new UI, no
+  new log line per tile, no change to what is decoded or how big it is.
+- `tools/test_suite.js` gains two checks (95 total, all PASS): one requires every allocation site in
+  the decode path to be wrapped, every recycle to go through the helper — exactly one bare
+  `.recycle()` left in the file, and it is the one inside the helper — and the scaled branch to
+  count only a new object; the other pins the underflow guard, the compare-and-set peak and the
+  single `bitmaps live` log site, so the counter cannot quietly become a per-tile log.
 
 ### 1.5.19 — day 7 of the 20-day optimisation plan, fifty-first pass
 No UI change, no new features. Item 69 of the plan: closing the viewer leaked it — every open/close
