@@ -174,6 +174,46 @@ public class MainActivity extends Activity {
     private File thumbDir;
     private int thumbDiskWrites = 0;
 
+    /* 70. A debug counter of live bitmaps. Every Bitmap this app allocates is counted as it leaves
+       a decoder and counted back out when it is recycled, so logcat carries two numbers: how many
+       bitmaps are alive right now, and the highest number that has ever been alive at once. The
+       second is the one worth having - it says how much of the heap the decode path really holds
+       at its worst, which is what a low-memory kill is decided on. Both are static and atomic
+       because decodes arrive on more than one thread. The count is "allocated minus recycled"
+       rather than a reference count on purpose: a frame that is dropped without recycle() is
+       exactly what this is meant to catch, and it stays visible here as live instead of vanishing.
+       Nothing is logged per bitmap - only when the peak climbs, so the log stays quiet. */
+    private static final java.util.concurrent.atomic.AtomicInteger LIVE_BITMAPS =
+            new java.util.concurrent.atomic.AtomicInteger();
+    private static final java.util.concurrent.atomic.AtomicInteger PEAK_BITMAPS =
+            new java.util.concurrent.atomic.AtomicInteger();
+
+    /* Every bitmap that leaves a decoder goes through here, and every recycle() in the decode path
+       goes through recycleTracked() below, so the pair always sees both halves of a bitmap's life
+       and the two counters cannot drift apart from the bitmaps they describe. */
+    private static Bitmap trackBitmap(Bitmap b) {
+        if (b == null) return null;
+        int live = LIVE_BITMAPS.incrementAndGet();
+        int peak = PEAK_BITMAPS.get();
+        while (live > peak && !PEAK_BITMAPS.compareAndSet(peak, live)) peak = PEAK_BITMAPS.get();
+        if (live > peak) Log.i(TAG, "bitmaps live " + live + " peak " + live);
+        return b;
+    }
+
+    /* Recycle a tracked bitmap and give its slot back. isRecycled() is read first so a second
+       recycle of the same object - a finally that runs after a path which already dropped it -
+       cannot push the live count below zero and turn the counter into a lie. */
+    private static void recycleTracked(Bitmap b) {
+        if (b == null) return;
+        boolean alive = !b.isRecycled();
+        b.recycle();
+        if (!alive) return;
+        if (LIVE_BITMAPS.decrementAndGet() < 0) {
+            LIVE_BITMAPS.set(0);
+            Log.w(TAG, "bitmap counter underflow, reset to 0");
+        }
+    }
+
     private void cacheThumb(long key, byte[] bytes) {
         synchronized (thumbCache) {
             byte[] old = thumbCache.put(key, bytes);
@@ -1030,7 +1070,13 @@ public class MainActivity extends Activity {
                 float f = max / (float) Math.max(wd, ht);
                 Bitmap sc = Bitmap.createScaledBitmap(bmp,
                         Math.max(1, (int) (wd * f)), Math.max(1, (int) (ht * f)), true);
-                if (sc != bmp) bmp.recycle();
+                /* Only a new object is a new bitmap: createScaledBitmap hands back its input
+                   when the size already matches, and counting that one twice would leave the
+                   counter one high for the life of the process. */
+                if (sc != bmp) {
+                    trackBitmap(sc);
+                    recycleTracked(bmp);
+                }
                 bmp = sc;
             }
             ByteArrayOutputStream bo = new ByteArrayOutputStream(24 * 1024);
@@ -1051,7 +1097,7 @@ public class MainActivity extends Activity {
             Log.w(TAG, "thumb fail " + id, t);
             return null;
         } finally {
-            if (bmp != null) bmp.recycle();
+            recycleTracked(bmp);
         }
     }
 
@@ -1087,7 +1133,7 @@ public class MainActivity extends Activity {
     private Bitmap decodeThumbImageDecoder(Uri uri, int max) {
         try {
             ImageDecoder.Source src = ImageDecoder.createSource(getContentResolver(), uri);
-            return ImageDecoder.decodeBitmap(src, new ThumbHeader(max));
+            return trackBitmap(ImageDecoder.decodeBitmap(src, new ThumbHeader(max)));
         } catch (Exception e) {
             Log.w(TAG, "ImageDecoder thumb fail " + uri, e);
             return null;
@@ -1137,13 +1183,13 @@ public class MainActivity extends Activity {
             bounds.inBitmap = null;
             InputStream in1 = getContentResolver().openInputStream(uri);
             try {
-                Bitmap probe = BitmapFactory.decodeStream(in1, null, bounds);
+                Bitmap probe = trackBitmap(BitmapFactory.decodeStream(in1, null, bounds));
                 maxDim = Math.max(bounds.outWidth, bounds.outHeight);
                 /* Bounds mode should not allocate, but a few platform decoders still
                    hand back a bitmap (a 1x1 placeholder or a thumb-sized frame). Drop it
                    the moment the dimensions are read so it is not alive while the real
                    decode below allocates its own buffer. */
-                if (probe != null && !probe.isRecycled()) probe.recycle();
+                recycleTracked(probe);
             } finally { close(in1); }
         }
         while (maxDim > 0 && maxDim / (sample * 2) >= THUMB_SAMPLE_TARGET_PX) sample *= 2;
@@ -1169,7 +1215,7 @@ public class MainActivity extends Activity {
             o.inTargetDensity = max;
         }
         InputStream in2 = getContentResolver().openInputStream(uri);
-        try { return BitmapFactory.decodeStream(in2, null, o); } finally { close(in2); }
+        try { return trackBitmap(BitmapFactory.decodeStream(in2, null, o)); } finally { close(in2); }
     }
 
     private static void close(InputStream s) {
