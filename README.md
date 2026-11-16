@@ -174,7 +174,7 @@ build.sh                                    full APK pipeline without Gradle
 tools/make_icons.py                         launcher icon generator
 tools/gen_preview.py                        preview harness (see below)
 tools/bench_first_frame.js                  first-frame benchmark on a 2000-photo library
-tools/test_suite.js                         the puppeteer regression suite (95 checks)
+tools/test_suite.js                         the puppeteer regression suite (98 checks)
 tools/leak_probe.js                         open/close the viewer N times and report what the page still holds
 docs/screenshots/                           screenshots
 ```
@@ -184,6 +184,31 @@ docs/screenshots/                           screenshots
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
 
 ## Changelog
+
+### 1.5.21 — day 8 of the 20-day optimisation plan, fifty-third pass
+No UI change, no new features. Item 71 of the plan: a lower accelerometer rate when 4D motion is off.
+- The accelerometer used to be registered at `SENSOR_DELAY_GAME` for the whole time the depth effect
+  was on, whether or not the page was drifting. With **4D motion** on that rate is the right one:
+  the page repaints the depth layers every 60 ms anyway, so sensor events are the only thing that
+  moves the parallax and a fast feed is what makes it follow the hand. With **4D motion** off the
+  drift timer is stopped and the page repaints *only* when a real tilt arrives — a repaint that
+  happens at most once per event — so the same parallax is now drawn from `SENSOR_DELAY_UI`
+  instead of `SENSOR_DELAY_GAME`: half the sensor wakeups, the same 33 ms push throttle, nothing
+  visible changed except that the layers settle at the sensor's own 60 ms cadence.
+- The flag rides the bridge call that was already there: `setTilt(depth, motion)` replaces
+  `setTilt(depth)`, the rate is derived from it in one place (`tiltRate()`), and the setting is
+  persisted next to `tilt` so a cold start registers at the right rate before the page has loaded.
+  A listener is registered at the rate it was given, so switching rate is an unregister + register
+  — the old registration is dropped first, in `startTilt()`, so the process can never be left
+  holding two registrations at two different rates.
+- `app/assets/index.html` changes by one call site — `N.setTilt(!!ST.depth,!!ST.motion)` — so the
+  layout, the glass, the colours, the animations and every screen are untouched, and depth off
+  still stops the sensor outright.
+- `tools/test_suite.js` gains three checks (98 total, all PASS): one pins the rate to the motion
+  flag, the single `registerListener` call, the unregister-before-register order, the two-boolean
+  bridge signature and the pref; one pins the page's single `setTilt` call site; and one taps the
+  real 4D-motion switch and the depth switch on a stubbed library and reads what reached native
+  (`[true,true] -> [true,false] -> [false,false]`).
 
 ### 1.5.20 — day 7 of the 20-day optimisation plan, fifty-second pass
 No UI change, no new features. Item 70 of the plan: a debug counter of live bitmaps.
