@@ -487,7 +487,24 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
 
 ## Day 8 — battery and sensors
 
-- [ ] 71. Lower the accelerometer rate when 4D motion is off.
+- [x] 71. Lower the accelerometer rate when 4D motion is off. *(1.5.21)*
+  The accelerometer was registered at `SENSOR_DELAY_GAME` whenever the depth effect was on, drifting
+  or not. With 4D motion on that is the right rate — the page repaints the depth layers every 60 ms
+  on its own timer, so the sensor feed is the only input that moves the parallax. With 4D motion off
+  the drift timer is stopped and the page repaints only when a real tilt arrives, so the same
+  parallax is now fed from `SENSOR_DELAY_UI`: half the wakeups, the 33 ms push throttle unchanged,
+  and nothing on screen moves that did not move before. The flag rides the bridge call that already
+  existed — `setTilt(depth, motion)` — and the rate is derived from it in one place, `tiltRate()`.
+  Because a listener is registered at the rate it was handed, switching rate is an unregister +
+  register; the old registration is dropped first inside `startTilt()`, so the process can never be
+  left holding two registrations at two rates. The flag is persisted next to `tilt`, so a cold
+  start registers at the right rate before the page has even loaded, and depth off still stops the
+  sensor outright. `app/assets/index.html` changes by one call site, `N.setTilt(!!ST.depth,!!ST.motion)`,
+  so the UI, the layout and every screen are untouched. `tools/test_suite.js` gains three checks (98
+  total): one pins the rate to the motion flag, the single `registerListener` call, the
+  unregister-before-register order, the two-boolean signature and the pref; one pins the page's one
+  `setTilt` call site; the third taps the real 4D-motion switch and then the depth switch on a
+  stubbed library and reads what reached native — `[true,true] -> [true,false] -> [false,false]`.
 - [ ] 72. Unregister the sensor on `onStop`, not just `onPause`.
 - [ ] 73. Stop the tilt timer when the page is hidden.
 - [ ] 74. Reduce bridge calls to at most 20/s (currently ~30/s).
