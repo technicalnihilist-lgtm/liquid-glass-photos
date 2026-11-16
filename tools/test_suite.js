@@ -2147,6 +2147,69 @@ function check(name, ok, detail) {
     !/bitmaps live/.test(thumbBody) && !/bitmaps live/.test(decodeFacFn) &&
     !/bitmaps live/.test(decodeImgFn));
 
+  /* 96. Item 71: with 4D motion off the page stops its 60 ms drift, so the accelerometer no longer
+         has to feed a repaint that happens anyway - the same parallax is drawn from real tilt at
+         SENSOR_DELAY_UI instead of SENSOR_DELAY_GAME, half the wakeups, and nothing on screen
+         changes. So the rate is derived from the motion flag at the one registerListener call, the
+         old rate is dropped before the new one is taken (a listener is registered at the rate it
+         was given, so leaving both behind would keep the fast one alive), the flag arrives on the
+         existing setTilt call and survives a restart in prefs. */
+  const tiltRateFn = (java.match(/private int tiltRate\(\)[\s\S]*?\n    \}/) || [''])[0];
+  const startTiltFn = (java.match(/private void startTilt\(\)[\s\S]*?\n    \}/) || [''])[0];
+  const setTiltFn = (java.match(/public void setTilt\(boolean on, boolean motion\)[\s\S]*?\n        \}/) || [''])[0];
+  check('the accelerometer rate follows the 4D-motion flag, one registration at a time',
+    /return motionOn \? SensorManager\.SENSOR_DELAY_GAME : SensorManager\.SENSOR_DELAY_UI;/.test(tiltRateFn) &&
+    /private boolean motionOn = true;/.test(java) &&
+    (java.match(/registerListener\(tiltListener, accel,/g) || []).length === 1 &&
+    /registerListener\(tiltListener, accel, tiltRate\(\)\);/.test(startTiltFn) &&
+    !/SENSOR_DELAY_GAME/.test(startTiltFn) &&
+    startTiltFn.indexOf('unregisterListener(tiltListener)') > 0 &&
+    startTiltFn.indexOf('unregisterListener(tiltListener)') < startTiltFn.indexOf('registerListener(') &&
+    setTiltFn.length > 0 &&
+    /motionOn = motion;/.test(setTiltFn) &&
+    /putBoolean\("tilt", on\)\.putBoolean\("motion", motion\)/.test(setTiltFn) &&
+    /motionOn = prefs\.getBoolean\("motion", true\);/.test(java));
+
+  /* 97. And the page really hands the flag over: the one setTilt call site carries both booleans,
+         a real tap on the 4D-motion switch reaches native as (depth unchanged, motion flipped),
+         and switching depth off still stops the sensor outright. */
+  const pageTilt = fs.readFileSync(APP, 'utf8');
+  check('the page sends depth and 4D motion on the one setTilt call',
+    (pageTilt.match(/N\.setTilt\(/g) || []).length === 1 &&
+    /N\.setTilt\(!!ST\.depth,!!ST\.motion\)/.test(pageTilt));
+
+  const tiltPage = await browser.newPage();
+  currentStub = stubFor(library(COUNT), 'true').replace(
+    'setTilt(){}',
+    'setTilt(a,b){(window.__tilt=window.__tilt||[]).push([!!a,!!b])}'
+  );
+  await tiltPage.goto(base, { waitUntil: 'load' });
+  /* the header only carries the gear once the grid has rendered, and the sheet only exists after
+     that tap, so each step waits for its element instead of trusting a fixed delay */
+  const tapTilt = (sel) => tiltPage.evaluate((s) => {
+    const el = document.querySelector(s);
+    if (!el) throw new Error('missing ' + s);
+    el.click();
+  }, sel);
+  await tiltPage.waitForSelector('[data-act="settings"]', { timeout: 15000 });
+  await settle(400);
+  const bootTilt = await tiltPage.evaluate(() => (window.__tilt || []).slice(-1)[0] || null);
+  await tapTilt('[data-act="settings"]');
+  await tiltPage.waitForSelector('.sw[data-k="motion"]', { timeout: 10000 });
+  await tapTilt('.sw[data-k="motion"]');
+  await settle(300);
+  const motionTilt = await tiltPage.evaluate(() => (window.__tilt || []).slice(-1)[0]);
+  await tapTilt('.sw[data-k="depth"]');
+  await settle(300);
+  const depthTilt = await tiltPage.evaluate(() => (window.__tilt || []).slice(-1)[0]);
+  check('tapping 4D motion off reaches native as a rate change, depth off still stops the sensor',
+    !!bootTilt && bootTilt.length === 2 &&
+    motionTilt[0] === bootTilt[0] && motionTilt[1] === !bootTilt[1] &&
+    depthTilt[0] === false && depthTilt[1] === motionTilt[1],
+    'boot ' + JSON.stringify(bootTilt) + ' -> motion ' + JSON.stringify(motionTilt) +
+    ' -> depth ' + JSON.stringify(depthTilt));
+  await tiltPage.close();
+
   await browser.close();
   server.close();
 
