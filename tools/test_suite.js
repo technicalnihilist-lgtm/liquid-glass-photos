@@ -2210,6 +2210,36 @@ function check(name, ok, detail) {
     ' -> depth ' + JSON.stringify(depthTilt));
   await tiltPage.close();
 
+  /* 99. Item 72: the accelerometer belongs to the visible window, not to the resume. onPause was
+         the only place the listener was dropped, and the page can call setTilt at any time, so a
+         setting pushed while the app was stopped could register the sensor again and leave it
+         running behind a screen nobody is looking at. Now one flag, set in onStart and cleared in
+         onStop, gates every registration, and onStop drops the listener itself. */
+  const onStopFn = (java.match(/protected void onStop\(\)[\s\S]*?\n    \}/) || [''])[0];
+  const onStartFn = (java.match(/protected void onStart\(\)[\s\S]*?\n    \}/) || [''])[0];
+  const onResumeFn = (java.match(/protected void onResume\(\)[\s\S]*?\n    \}/) || [''])[0];
+  const onPauseFn = (java.match(/protected void onPause\(\)[\s\S]*?\n    \}/) || [''])[0];
+  check('the accelerometer is only registered while the activity is started',
+    /private boolean started;/.test(java) &&
+    /\&\& started\) \{/.test(startTiltFn) &&
+    /if \(tiltOn \&\& started\) startTilt\(\);/.test(setTiltFn) &&
+    onStopFn.indexOf('started = false;') > 0 &&
+    onStopFn.indexOf('started = false;') < onStopFn.indexOf('stopTilt();') &&
+    onStartFn.indexOf('started = true;') > 0 &&
+    !/startTilt\(\)/.test(onStartFn));
+
+  /* 100. And that gate is the only door: exactly one registerListener call site in the file, a
+          resume still registers, a pause and a stop both drop the listener, and neither onStart
+          nor onStop opens a second path to the sensor. */
+  check('no path registers the sensor behind a stopped activity, and stop drops it like pause',
+    (java.match(/registerListener\(tiltListener, accel,/g) || []).length === 1 &&
+    /startTilt\(\);/.test(onResumeFn) &&
+    /stopTilt\(\);/.test(onPauseFn) &&
+    (onStopFn.match(/stopTilt\(\);/g) || []).length === 1 &&
+    !/registerListener/.test(onStopFn) && !/registerListener/.test(onStartFn) &&
+    !/registerListener/.test(onResumeFn) && !/registerListener/.test(onPauseFn) &&
+    (java.match(/startTilt\(\);/g) || []).length === 2);
+
   await browser.close();
   server.close();
 
