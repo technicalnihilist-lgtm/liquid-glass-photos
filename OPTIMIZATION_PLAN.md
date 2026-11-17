@@ -573,7 +573,23 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
   against the raw reading, the band guard and the reset in `startTilt()`; the other does the
   arithmetic against the page's deadband and the push rate, so the band, the step and the settle
   time cannot drift out of the window they have to sit in.
-- [ ] 76. Skip tilt pushes while a sheet is open (nothing visible moves).
+- [x] 76. Skip tilt pushes while a sheet is open (nothing visible moves). *(1.5.26)*
+  A sheet drops its own scrim over the whole screen, so nothing under it answers the sensor — but
+  the listener still formatted a script and pushed it across the bridge 20 times a second for the
+  length of the sheet, and every push is a JNI hop plus a compile in the WebView. The page now
+  reports the sheet: the first `sheet()` open and the last close each send one `setOverlay()` call
+  over the bridge (`SHEET_OPEN` counts them, so two sheets open and one closed report nothing, and
+  a second close of the same sheet — the back key and the scrim both land on it — reports nothing
+  again), and a freshly loaded page reports "no sheet" at init so a flag left behind by the last
+  page can never mute the tilt. Native keeps the flag in `overlayOn` and drops the push after the
+  clamp and before the `String.format`. Only the push stops: the 20/s gate, the baseline and the
+  idle re-baseline all keep running, so the tilt a sheet closes onto is the current one and the
+  parallax resumes on it instead of snapping. The sheet has no parallax transform of its own
+  (`.sheet` only translates), so nothing visible changes.
+  `tools/test_suite.js` gains two checks (108 total): one pins the flag, the drop before the
+  format, the three `setOverlay` call sites and the guard that the rebase still runs before it;
+  the other drives two sheets in a real page and asserts the open/close reporting, the double
+  close and the init reset.
 - [ ] 77. Use `SENSOR_DELAY_UI` when the battery is low.
 - [ ] 78. Pause the water-sound AudioContext when idle.
 - [ ] 79. Verify no wakelocks are held.
