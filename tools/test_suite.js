@@ -2583,12 +2583,15 @@ function check(name, ok, detail) {
   acPage.on('pageerror', (e) => acErrors.push(String(e && e.message)));
   await acPage.goto(base, { waitUntil: 'load' });
   await acPage.bringToFront();
+  /* the host clock starts before the tap, not after the evaluate returns: the page arms its
+     idle timer inside that call, so a slow round trip can otherwise eat part of the window and
+     make a correct suspend look early */
+  const acT0 = Date.now();
   const acStart = await acPage.evaluate(() => {
     ST.sound = true;
     plop();
     return { calls: window.__acCalls.slice(), state: window.__ac ? window.__ac.state : null };
   });
-  const acT0 = Date.now();
   await new Promise((r) => setTimeout(r, Math.round(AC_IDLE_MS / 2)));
   const acMid = await acPage.evaluate(() => ({ calls: window.__acCalls.slice(), state: window.__ac.state }));
   /* wait for the suspend rather than sleeping the exact window: a busy box can delay a timer,
@@ -2613,6 +2616,57 @@ function check(name, ok, detail) {
     acWaited >= AC_IDLE_MS && acWaited <= AC_IDLE_MS * 4,
     'tail ' + TAIL_MS + ' ms vs idle ' + AC_IDLE_MS + ' ms, suspended after ' + acWaited +
     ' ms, calls ' + JSON.stringify(acAgain.calls));
+
+  /* 113. (79) Nothing in the app can take a wakelock. build.sh links app/AndroidManifest.xml
+          as-is, so a manifest that declares no wake lock permission is the whole native story,
+          and the two places a lock could be taken from — the Java shell and the page — carry no
+          call to one. The permission list is checked as a set, so a lock cannot arrive as a
+          differently spelled name either. */
+  const manifestSrc = fs.readFileSync(path.join(ROOT, 'app/AndroidManifest.xml'), 'utf8');
+  const javaWake = fs.readFileSync(path.join(ROOT, 'app/java/com/liquidglass/photos/MainActivity.java'), 'utf8');
+  const pageWake = fs.readFileSync(APP, 'utf8');
+  const perms = manifestSrc.match(/android:name="android\.permission\.[A-Z_]+"/g) || [];
+  const wakePerms = perms.filter((p) => /WAKE|PARTIAL|SCREEN/.test(p));
+  check('no wakelock permission is declared and no code can acquire one',
+    perms.length > 0 && wakePerms.length === 0 &&
+    !/keepScreenOn/i.test(manifestSrc) &&
+    !/PowerManager|newWakeLock|WAKE_LOCK|setKeepScreenOn|FLAG_KEEP_SCREEN_ON/.test(javaWake) &&
+    !/navigator\.wakeLock|wakeLock\.request|keepAwake|NoSleep/.test(pageWake),
+    perms.length + ' permissions, none a wake lock');
+
+  /* 114. (79) And a real session never reaches for one. The page is handed a wake-lock API that
+          counts every read and records every request, then boot, the viewer, a selection and a
+          tilt push are driven through it: the record stays empty, so no lock is held because no
+          lock is ever asked for. */
+  const WAKE_STUB =
+    '<script>(function(){' +
+    'window.__wl={reads:0,calls:[]};' +
+    'const api={request:function(t){window.__wl.calls.push("request:"+t);' +
+    'return Promise.resolve({released:Promise.resolve(),release:function(){window.__wl.calls.push("release");return Promise.resolve()}})}};' +
+    'Object.defineProperty(navigator,"wakeLock",{configurable:true,get:function(){window.__wl.reads++;return api}});' +
+    '})();</script>';
+  currentStub = stubFor(library(COUNT), 'true') + WAKE_STUB;
+  const wlPage = await browser.newPage();
+  const wlErrors = [];
+  wlPage.on('pageerror', (e) => wlErrors.push(String(e && e.message)));
+  await wlPage.goto(base, { waitUntil: 'load' });
+  await wlPage.waitForFunction((n) => document.querySelectorAll('.tile').length === n, { timeout: 30000 }, COUNT);
+  await wlPage.click('.tile');
+  await wlPage.waitForSelector('.viewer .stage img', { timeout: 30000 });
+  await wlPage.click('[data-v="close"]');
+  await wlPage.waitForFunction(() => !document.querySelector('.viewer'), { timeout: 30000 });
+  await wlPage.click('[data-act="startsel"]');
+  await wlPage.waitForSelector('#selbar:not(.hide)', { timeout: 30000 });
+  await wlPage.click('.tile');
+  await wlPage.evaluate(() => {
+    window.__native.tilt(0.4, -0.3);
+  });
+  await settle(500);
+  const wl = await wlPage.evaluate(() => ({ reads: window.__wl.reads, calls: window.__wl.calls.slice() }));
+  await wlPage.close();
+  check('a driven session never reads or requests the wake lock',
+    wl.reads === 0 && wl.calls.length === 0 && wlErrors.length === 0,
+    wl.reads + ' reads, ' + wl.calls.length + ' calls');
 
   await browser.close();
   server.close();
