@@ -174,7 +174,7 @@ build.sh                                    full APK pipeline without Gradle
 tools/make_icons.py                         launcher icon generator
 tools/gen_preview.py                        preview harness (see below)
 tools/bench_first_frame.js                  first-frame benchmark on a 2000-photo library
-tools/test_suite.js                         the puppeteer regression suite (104 checks)
+tools/test_suite.js                         the puppeteer regression suite (106 checks)
 tools/leak_probe.js                         open/close the viewer N times and report what the page still holds
 docs/screenshots/                           screenshots
 ```
@@ -182,6 +182,25 @@ docs/screenshots/                           screenshots
 ## About the screenshots
 
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
+
+### 1.5.25 — day 8 of the 20-day optimisation plan, fifty-seventh pass
+No UI change, no new features. Item 75 of the plan: the tilt baseline is re-baselined after a long
+idle instead of drifting away from centre.
+- The baseline the parallax is measured against was captured once, when depth was switched on, and
+  never revisited. Accelerometer bias and thermal drift move the zero point under it over a long
+  idle, so the parallax ended up leaning — and because the page only breathes inside its own
+  `|x|,|y| < 0.06` deadband, the idle drift stopped with it and the glass sat still, off centre.
+- A reading that has not moved by more than `TILT_STEADY_EPS` (0.02 g) for `TILT_IDLE_MS` (2.5 s)
+  is now treated as the zero point: the baseline eases onto it `TILT_REBASE_STEP` (5%) at a time,
+  inside `TILT_REBASE_MAX` (0.25 g — the offset the page's 0.06 deadband covers, 0.06 × 4.2). That
+  is under three seconds to settle at the 20 pushes a second the gate already allows, 0.003 of a
+  unit per push, so nothing jumps, and a tilt the user is deliberately holding is never corrected
+  away. The rebase rides the existing 20/s pushes after the gate, so it adds no bridge call and no
+  wakeup. `app/assets/index.html` is byte-identical to 1.5.24 — same parallax, same feel.
+- `tools/test_suite.js` gains two checks (106 total, all PASS): one pins the four constants, the
+  steady test against the raw reading, the band guard and the reset in `startTilt()`; the other
+  does the arithmetic — the band equals the page deadband, one push moves the parallax by a
+  quarter of the deadband at most, and the ease settles inside four seconds of the idle window.
 
 ## Changelog
 
