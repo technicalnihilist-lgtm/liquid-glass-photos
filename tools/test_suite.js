@@ -2330,6 +2330,54 @@ function check(name, ok, detail) {
     pushMs + ' ms -> ' + (pushMs ? 1000 / pushMs : 0) + '/s, sensor ' + gameMs + '/' + uiMs +
     ' ms, drift ' + driftMs + ' ms');
 
+  /* 105. Item 75: the baseline was captured once, when depth was switched on, and never revisited,
+          so accelerometer bias drift over a long idle left the parallax leaning - and because the
+          page only breathes inside its own deadband, the idle drift stopped with it. A reading
+          that has not moved for TILT_IDLE_MS is now the zero point: the baseline eases onto it a
+          step at a time, and only inside TILT_REBASE_MAX, so a held tilt is never corrected away.
+          The step is checked before the tilt is computed and after the 20/s gate, so the rebase
+          rides the same pushes as the parallax and costs nothing extra. */
+  check('a still reading past the idle window eases the tilt baseline back to centre',
+    /private static final long TILT_IDLE_MS = \d+L;/.test(java) &&
+    /private static final float TILT_STEADY_EPS = [\d.]+f;/.test(java) &&
+    /private static final float TILT_REBASE_MAX = [\d.]+f;/.test(java) &&
+    /private static final float TILT_REBASE_STEP = [\d.]+f;/.test(java) &&
+    /now - lastTiltMove >= TILT_IDLE_MS/.test(sensorFn) &&
+    /Math\.abs\(ax - prevX\) > TILT_STEADY_EPS/.test(sensorFn) &&
+    /Math\.abs\(bx\) < TILT_REBASE_MAX && Math\.abs\(by\) < TILT_REBASE_MAX/.test(sensorFn) &&
+    /baseX \+= bx \* TILT_REBASE_STEP;/.test(sensorFn) &&
+    /baseY \+= by \* TILT_REBASE_STEP;/.test(sensorFn) &&
+    sensorFn.indexOf('TILT_PUSH_MS') < sensorFn.indexOf('lastTiltMove = now;') &&
+    sensorFn.indexOf('lastTiltMove = now;') < sensorFn.indexOf('float x = -(ax - baseX)') &&
+    (java.match(/baseX = Float\.NaN;/g) || []).length === 1 &&
+    /prevX = Float\.NaN;/.test(java) &&
+    /lastTiltMove = 0L;/.test(java));
+
+  /* 106. And the numbers fit the page: the rebase band is exactly the offset the page's deadband
+          covers (0.06 * 4.2), one push moves the parallax by a fraction of that so it can never
+          jump, and the ease settles inside a few seconds of the idle window ending, at the 20/s
+          the gate already allows. A "long idle" is seconds, not frames. */
+  const idleMs = parseInt((java.match(/TILT_IDLE_MS = (\d+)L/) || [])[1] || '0', 10);
+  const steadyEps = parseFloat((java.match(/TILT_STEADY_EPS = ([\d.]+)f/) || [])[1] || '0');
+  const rebaseMax = parseFloat((java.match(/TILT_REBASE_MAX = ([\d.]+)f/) || [])[1] || '0');
+  const rebaseStep = parseFloat((java.match(/TILT_REBASE_STEP = ([\d.]+)f/) || [])[1] || '0');
+  const deadband = parseFloat((pageTilt.match(/Math\.abs\(x\)<([\d.]+)&&Math\.abs\(y\)</) || [])[1] || '0');
+  const tiltDiv = parseFloat((sensorFn.match(/\/ \(?([\d.]+)f\)?;/) || [])[1] ||
+    (java.match(/\(ax - baseX\) \/ ([\d.]+)f/) || [])[1] || '0');
+  const bandUnits = tiltDiv ? rebaseMax / tiltDiv : 0;
+  const stepUnits = tiltDiv ? (rebaseStep * rebaseMax) / tiltDiv : 0;
+  const settlePushes = rebaseStep > 0 ? Math.log(0.05) / Math.log(1 - rebaseStep) : 0;
+  const settleMs = pushMs ? settlePushes * pushMs : 0;
+  check('the re-baseline stays inside the page deadband, never jumps, and settles in seconds',
+    deadband > 0 && tiltDiv > 0 &&
+    Math.abs(bandUnits - deadband) <= 0.01 &&
+    stepUnits > 0 && stepUnits <= deadband / 4 &&
+    steadyEps > 0 && steadyEps < rebaseMax &&
+    idleMs >= 1000 && idleMs <= 10000 &&
+    settleMs > 0 && settleMs <= 4000,
+    'band ' + bandUnits.toFixed(3) + ' vs deadband ' + deadband + ', step ' + stepUnits.toFixed(4) +
+    ', settle ' + Math.round(settleMs) + ' ms after ' + idleMs + ' ms idle, eps ' + steadyEps + ' g');
+
   await browser.close();
   server.close();
 
