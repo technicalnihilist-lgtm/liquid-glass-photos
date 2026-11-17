@@ -174,7 +174,7 @@ build.sh                                    full APK pipeline without Gradle
 tools/make_icons.py                         launcher icon generator
 tools/gen_preview.py                        preview harness (see below)
 tools/bench_first_frame.js                  first-frame benchmark on a 2000-photo library
-tools/test_suite.js                         the puppeteer regression suite (106 checks)
+tools/test_suite.js                         the puppeteer regression suite (108 checks)
 tools/leak_probe.js                         open/close the viewer N times and report what the page still holds
 docs/screenshots/                           screenshots
 ```
@@ -182,6 +182,25 @@ docs/screenshots/                           screenshots
 ## About the screenshots
 
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
+
+### 1.5.26 — day 8 of the 20-day optimisation plan, fifty-eighth pass
+No UI change, no new features. Item 76 of the plan: the tilt push is dropped while a sheet is open.
+- A sheet drops its own scrim over the whole screen, so nothing under it answers the sensor — yet
+  the accelerometer listener still formatted a script and pushed it across the bridge 20 times a
+  second for as long as the sheet was up, and every push is a JNI hop plus a compile in the
+  WebView. The page now reports the sheet: the first `sheet()` open and the last close each send
+  one `setOverlay()` call, `SHEET_OPEN` counts them so a second close of the same sheet (the back
+  key and the scrim both land on it) reports nothing, and a freshly loaded page reports "no sheet"
+  at init so a flag left behind by the last page can never mute the tilt.
+- Native holds the flag in `overlayOn` and drops the push after the clamp and before the
+  `String.format`, so the format and the hop are skipped, not just the paint. Only the push stops:
+  the 20/s gate, the baseline and the idle re-baseline keep running, so the tilt a sheet closes
+  onto is the current one and the parallax resumes on it instead of snapping back. The sheet has
+  no parallax transform of its own — `.sheet` only translates — so nothing visible changes.
+- `tools/test_suite.js` gains two checks (108 total, all PASS): one pins the flag, the drop before
+  the format and the three `setOverlay` call sites; the other drives two sheets in a real page and
+  asserts one "open" between them, no report when one of two closes, one "closed" for the last, no
+  report on a second close, and the reset at init.
 
 ### 1.5.25 — day 8 of the 20-day optimisation plan, fifty-seventh pass
 No UI change, no new features. Item 75 of the plan: the tilt baseline is re-baselined after a long
