@@ -174,7 +174,7 @@ build.sh                                    full APK pipeline without Gradle
 tools/make_icons.py                         launcher icon generator
 tools/gen_preview.py                        preview harness (see below)
 tools/bench_first_frame.js                  first-frame benchmark on a 2000-photo library
-tools/test_suite.js                         the puppeteer regression suite (108 checks)
+tools/test_suite.js                         the puppeteer regression suite (110 checks)
 tools/leak_probe.js                         open/close the viewer N times and report what the page still holds
 docs/screenshots/                           screenshots
 ```
@@ -182,6 +182,30 @@ docs/screenshots/                           screenshots
 ## About the screenshots
 
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
+
+### 1.5.27 — day 8 of the 20-day optimisation plan, fifty-ninth pass
+No UI change, no new features. Item 77 of the plan: the accelerometer drops to `SENSOR_DELAY_UI`
+while the battery is low.
+- A phone that is nearly flat kept the fast sensor rate: with 4D motion on, the listener was
+  registered at `SENSOR_DELAY_GAME`, an event every 20 ms, right down to the last percent. The
+  battery level is the input that says otherwise, so it is read from the sticky
+  `ACTION_BATTERY_CHANGED` broadcast in `onStart()` — before `onResume()` registers anything, so a
+  cold start on a flat phone gets the low rate first time — and while the level is at or under
+  `LOW_BATTERY_PCT` (15%) the rate is `SENSOR_DELAY_UI`: an event every 60 ms instead of every
+  20 ms, a third of the wakeups, for the same parallax at the rate the page repaints it anyway.
+- Only the rate moves. The 50 ms push gate, the baseline, the idle re-baseline and the sheet's
+  overlay drop all keep running, and nothing re-registers unless the low/not-low answer actually
+  flipped, so the steady stream of level broadcasts costs a subtraction. The swap goes through
+  `startTilt()` — the one registration site — with the old rate dropped first, and the baseline is
+  carried across it, so the glass does not jump back to centre when the level crosses the line. A
+  listener that is not registered (a pause dropped it) is left alone, so a battery change behind a
+  dialog cannot put the sensor back on. `app/assets/index.html` is byte-identical to 1.5.26.
+- `tools/test_suite.js` gains two checks (110 total, all PASS): one pins the threshold, the sticky
+  registration in `onStart()`, the unregister in `onStop()`, the level/scale arithmetic and the
+  early return when the answer has not changed; the other pins the single registration site, the
+  unregister-before-register order, the `tiltRegistered` gate and the carried baseline, and does
+  the arithmetic — the low rate's 60 ms period is the page's own repaint period and still above
+  the 50 ms push gate.
 
 ### 1.5.26 — day 8 of the 20-day optimisation plan, fifty-eighth pass
 No UI change, no new features. Item 76 of the plan: the tilt push is dropped while a sheet is open.
