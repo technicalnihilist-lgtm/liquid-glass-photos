@@ -174,7 +174,7 @@ build.sh                                    full APK pipeline without Gradle
 tools/make_icons.py                         launcher icon generator
 tools/gen_preview.py                        preview harness (see below)
 tools/bench_first_frame.js                  first-frame benchmark on a 2000-photo library
-tools/test_suite.js                         the puppeteer regression suite (110 checks)
+tools/test_suite.js                         the puppeteer regression suite (112 checks)
 tools/leak_probe.js                         open/close the viewer N times and report what the page still holds
 docs/screenshots/                           screenshots
 ```
@@ -182,6 +182,29 @@ docs/screenshots/                           screenshots
 ## About the screenshots
 
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
+
+### 1.5.28 — day 8 of the 20-day optimisation plan, sixtieth pass
+No UI change, no new features. Item 78 of the plan: the water-sound `AudioContext` is paused when
+it goes idle.
+- The page opened one `AudioContext` on the first tap and kept it running for the life of the page.
+  A running context keeps its audio thread awake whether or not it is making a sound, and the plop
+  itself is over in 0.26 s, so every second after a tap was a thread doing nothing. The context is
+  now handed back once it has been quiet for `AC_IDLE_MS` (2000 ms — nearly eight times the
+  longest plop, so a suspend can never clip a sound), and the next tap that needs a sound resumes
+  it inside the same gesture, which is exactly the resume the page already did for a context the
+  browser had suspended.
+- One door in and one door out: `ac()` is still the only place a context is created and the only
+  place it is resumed, `suspendAudio()` is the only place it is suspended, and the idle timer is
+  cleared and re-armed on every use, so a burst of taps arms one timer rather than one per tap.
+  `suspendAudio()` refuses to touch a context that is not running, and a hidden page suspends at
+  once — the same hide the drift timer and the sensor already answer. `plop()` and the sound itself
+  are untouched: same three bubbles, same noise tail, same volume.
+- `tools/test_suite.js` gains two checks (112 total, all PASS): one pins the single creation site,
+  the single resume and the single suspend, the `state !== 'running'` guard, the clear-before-arm
+  in `acIdle()`, the one `setTimeout` that arms it and the `visibilitychange` suspend; the other
+  drives a real page with a stubbed context — it is opened running by the first plop, is still
+  running half-way through the window, is suspended once the window passes, and the next plop
+  resumes it and plays — and it checks the window against the page's own 0.26 s sound tail.
 
 ### 1.5.27 — day 8 of the 20-day optimisation plan, fifty-ninth pass
 No UI change, no new features. Item 77 of the plan: the accelerometer drops to `SENSOR_DELAY_UI`
