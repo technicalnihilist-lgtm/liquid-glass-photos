@@ -3,11 +3,14 @@ package com.liquidglass.photos;
 import android.Manifest;
 import android.app.Activity;
 import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
 import android.content.ComponentCallbacks2;
 import android.content.ContentResolver;
+import android.content.Context;
 import android.content.ContentUris;
 import android.content.ContentValues;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.res.AssetFileDescriptor;
@@ -24,6 +27,7 @@ import android.graphics.Color;
 import android.graphics.ImageDecoder;
 import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
+import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -376,6 +380,27 @@ public class MainActivity extends Activity {
        baseline and the idle re-baseline keep running, so the tilt a sheet closes onto is the
        current one and the parallax resumes on it instead of snapping back. */
     private volatile boolean overlayOn = false;
+    /* 77. A phone that is nearly flat should not spend its last percent waking the sensor for a
+       parallax it can barely show. The battery level is the one input that says so, so while it
+       is at or under LOW_BATTERY_PCT the accelerometer is registered at SENSOR_DELAY_UI whatever
+       4D motion asks for: an event every 60 ms instead of every 20 ms, a third of the wakeups,
+       for the same parallax at the rate the page repaints it anyway (60 ms). Only the rate moves —
+       the push gate, the baseline, the idle re-baseline and the overlay drop all keep running, and
+       the swap is made in place, so the parallax continues from the value it was holding instead
+       of snapping back to the baseline. The level is a sticky broadcast, read in onStart before
+       onResume registers anything, so a cold start on a flat phone gets the low rate first time. */
+    private static final int LOW_BATTERY_PCT = 15;
+    private boolean batteryLow = false;
+    /* whether a listener is registered right now: onPause drops it and onStop drops it, and a
+       battery change arriving behind a dialog must not put the sensor back on through either. */
+    private boolean tiltRegistered = false;
+
+    private final BroadcastReceiver batteryReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context c, Intent i) {
+            applyBattery(i);
+        }
+    };
 
     private final SensorEventListener tiltListener = new SensorEventListener() {
         @Override
@@ -425,7 +450,43 @@ public class MainActivity extends Activity {
 
     /** The sensor rate this process should be running at right now. */
     private int tiltRate() {
+        /* 77. Low charge outranks 4D motion: the page repaints the parallax at most every 60 ms,
+           which is exactly SENSOR_DELAY_UI's period, so the low rate feeds it the same movement
+           the fast one did and nothing on screen changes. */
+        if (batteryLow) return SensorManager.SENSOR_DELAY_UI;
         return motionOn ? SensorManager.SENSOR_DELAY_GAME : SensorManager.SENSOR_DELAY_UI;
+    }
+
+    /* 77. Read one battery broadcast: level and scale, both of which every ACTION_BATTERY_CHANGED
+       carries. Nothing happens unless the low/not-low answer actually flipped, so the steady
+       stream of level broadcasts costs a subtraction and never a re-registration. */
+    private void applyBattery(Intent i) {
+        if (i == null) return;
+        int level = i.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+        int scale = i.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
+        if (level < 0 || scale <= 0) return;
+        boolean low = level * 100 / scale <= LOW_BATTERY_PCT;
+        if (low == batteryLow) return;
+        batteryLow = low;
+        swapTiltRate();
+    }
+
+    /* 77. Move the live listener onto the rate tiltRate() now asks for. startTilt() is the only
+       place a listener is registered, so the swap goes through it — but startTilt() also captures
+       a fresh baseline, which is right when depth is switched on and wrong here: a battery
+       crossing would jump the glass back to centre. The baseline is therefore carried across the
+       swap. A listener that is not registered (a pause dropped it) is left alone; the resume
+       registers at the new rate anyway. */
+    private void swapTiltRate() {
+        if (!tiltRegistered) return;
+        float bx = baseX, by = baseY, px = prevX, py = prevY;
+        long moved = lastTiltMove;
+        startTilt();
+        baseX = bx;
+        baseY = by;
+        prevX = px;
+        prevY = py;
+        lastTiltMove = moved;
     }
 
     private void startTilt() {
@@ -446,7 +507,7 @@ public class MainActivity extends Activity {
                 sensors.unregisterListener(tiltListener);
             } catch (Exception ignored) {
             }
-            sensors.registerListener(tiltListener, accel, tiltRate());
+            tiltRegistered = sensors.registerListener(tiltListener, accel, tiltRate());
         }
     }
 
@@ -457,6 +518,7 @@ public class MainActivity extends Activity {
             } catch (Exception ignored) {
             }
         }
+        tiltRegistered = false;
     }
 
     /* Paint every layer the user can see before the page draws in the colour the page itself
@@ -1934,6 +1996,13 @@ public class MainActivity extends Activity {
            is already queued on the UI thread finds it down and does nothing. */
         started = false;
         stopTilt();
+        /* 77. The battery is only watched while the window is visible: the level is a sticky
+           broadcast, so onStart reads the current one again and a change that happened while the
+           app was stopped is picked up there, before the sensor is registered. */
+        try {
+            unregisterReceiver(batteryReceiver);
+        } catch (Exception ignored) {
+        }
         uiHandler.removeCallbacks(freeMediaOnBackground);
         uiHandler.postDelayed(freeMediaOnBackground, MEDIA_LIST_BG_FREE_MS);
     }
@@ -1944,6 +2013,15 @@ public class MainActivity extends Activity {
         /* the window is visible again; onResume() (or the next setTilt) does the registering, so
            this only re-opens the gate and never touches the sensor itself */
         started = true;
+        /* 77. Read the battery before anything registers a listener: the resume and the page's
+           setTilt both register through the one door below, and that door asks tiltRate(), which
+           needs to know already. The sticky intent comes back from the register call itself, so
+           the level is known without waiting for the next level change. */
+        try {
+            applyBattery(registerReceiver(batteryReceiver,
+                    new IntentFilter(Intent.ACTION_BATTERY_CHANGED)));
+        } catch (Exception ignored) {
+        }
         uiHandler.removeCallbacks(freeMediaOnBackground);
     }
 
