@@ -368,6 +368,14 @@ public class MainActivity extends Activity {
     private static final float TILT_REBASE_STEP = 0.05f;
     private long lastTiltMove = 0L;
     private float prevX = Float.NaN, prevY = Float.NaN;
+    /* 76. A sheet covers the screen with its own scrim, so nothing under it answers the sensor
+       while it is open — yet the listener still formatted a script and pushed it across the
+       bridge 20 times a second, and every push is a JNI hop plus a compile in the WebView. The
+       page reports a sheet with setOverlay() as the first one opens and the last one closes, and
+       the push is dropped between those two calls. Only the push is dropped: the gate, the
+       baseline and the idle re-baseline keep running, so the tilt a sheet closes onto is the
+       current one and the parallax resumes on it instead of snapping back. */
+    private volatile boolean overlayOn = false;
 
     private final SensorEventListener tiltListener = new SensorEventListener() {
         @Override
@@ -403,6 +411,8 @@ public class MainActivity extends Activity {
             if (x < -1f) x = -1f;
             if (y > 1f) y = 1f;
             if (y < -1f) y = -1f;
+            /* 76. Nothing under an open sheet can show it: skip the format and the bridge hop. */
+            if (overlayOn) return;
             final String js = String.format(Locale.US,
                     "window.__native&&window.__native.tilt&&window.__native.tilt(%.3f,%.3f)", x, y);
             eval(js);
@@ -1733,6 +1743,12 @@ public class MainActivity extends Activity {
                     else stopTilt();
                 }
             });
+        }
+
+        /* 76. The page's sheet state, so the tilt push can be dropped while one is open. */
+        @JavascriptInterface
+        public void setOverlay(boolean on) {
+            overlayOn = on;
         }
 
         @JavascriptInterface
