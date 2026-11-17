@@ -640,7 +640,27 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
   a real page with a stubbed context — opened running by the first plop, still running half-way
   through the window, suspended once the window passes, and resumed by the next plop — and does the
   arithmetic against the page's own 0.26 s sound tail.
-- [ ] 79. Verify no wakelocks are held.
+- [x] 79. Verify no wakelocks are held. *(1.5.29)*
+  Verified — the app never takes one, and the answer is now pinned so it stays that way. The
+  manifest declares six permissions (`READ_MEDIA_IMAGES`, `READ_MEDIA_VISUAL_USER_SELECTED`,
+  `READ_EXTERNAL_STORAGE`, `WRITE_EXTERNAL_STORAGE`, `VIBRATE`, `INTERNET`) and no `WAKE_LOCK`;
+  the Java shell has no `PowerManager`, no `newWakeLock()`, no `setKeepScreenOn()` and no
+  `FLAG_KEEP_SCREEN_ON`; the page never touches `navigator.wakeLock`. The only power-shaped work
+  either of them does is the opposite of holding the device awake: the audio context is handed
+  back when idle (78), `visibilitychange` stops the drift timer, the auto-scroll and the sound,
+  and the accelerometer is unregistered in `onStop()` — so the screen sleeps on the system timeout
+  and nothing here keeps the CPU up behind it. The `SYSTEM_UI_FLAG_*` constants in the shell are
+  edge-to-edge layout flags, not `KEEP_SCREEN_ON`.
+  `tools/test_suite.js` gains two checks (114 total, all PASS): one reads the three sources the
+  build uses — the manifest, `MainActivity.java`, `index.html` — and asserts the permission list
+  holds no wake-family name, that the manifest carries no `keepScreenOn`, and that neither source
+  carries an acquisition call; the other drives a real session (boot, the viewer, a selection, a
+  tilt push) in a page whose `navigator.wakeLock` counts every read and records every request, and
+  requires the record to stay empty. No app source changed for this item: `app/assets/index.html`
+  and `MainActivity.java` are byte-identical to 1.5.28 and the APK differs only in version code
+  and name. The idle-window check added by 78 also starts its host clock before the tap now rather
+  than after the evaluate returns — a slow round trip could eat part of the 2000 ms window and
+  make a correct suspend look early, which is a harness timing bug, not a page one.
 - [ ] 80. Measure battery impact over 10 minutes of idle scroll.
 
 ## Day 9 — startup
