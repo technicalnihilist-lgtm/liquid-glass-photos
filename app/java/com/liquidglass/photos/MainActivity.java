@@ -353,6 +353,21 @@ public class MainActivity extends Activity {
     private static final long TILT_PUSH_MS = 50L;
     private long lastTiltPush = 0L;
     private float baseX = Float.NaN, baseY = Float.NaN;
+    /* 75. A still phone is not a perfectly still sensor. The baseline above is captured once, when
+       depth is switched on, and bias plus thermal drift move the accelerometer's zero point under
+       it over a long idle: the parallax ends up leaning, and because the page only breathes while
+       |x| and |y| are under 0.06 it also stops drifting. A reading that has not moved by more than
+       TILT_STEADY_EPS for TILT_IDLE_MS is a zero point, not a tilt, so the baseline eases onto it
+       TILT_REBASE_STEP at a time — about three seconds to settle at 20 pushes a second, under a
+       hundredth of a unit per push, so nothing jumps. The ease stops at TILT_REBASE_MAX, the
+       offset the page's 0.06 deadband covers (0.06 * 4.2), so a tilt the user is deliberately
+       holding is never corrected away. */
+    private static final long TILT_IDLE_MS = 2500L;
+    private static final float TILT_STEADY_EPS = 0.02f;
+    private static final float TILT_REBASE_MAX = 0.25f;
+    private static final float TILT_REBASE_STEP = 0.05f;
+    private long lastTiltMove = 0L;
+    private float prevX = Float.NaN, prevY = Float.NaN;
 
     private final SensorEventListener tiltListener = new SensorEventListener() {
         @Override
@@ -367,6 +382,21 @@ public class MainActivity extends Activity {
                 baseX = ax;
                 baseY = ay;
             }
+            /* 75. A reading that has not moved for TILT_IDLE_MS is the zero point, so ease the
+               baseline onto it instead of leaving the parallax leaning on the old one. */
+            if (Float.isNaN(prevX)
+                    || Math.abs(ax - prevX) > TILT_STEADY_EPS
+                    || Math.abs(ay - prevY) > TILT_STEADY_EPS) {
+                lastTiltMove = now;
+            } else if (now - lastTiltMove >= TILT_IDLE_MS) {
+                float bx = ax - baseX, by = ay - baseY;
+                if (Math.abs(bx) < TILT_REBASE_MAX && Math.abs(by) < TILT_REBASE_MAX) {
+                    baseX += bx * TILT_REBASE_STEP;
+                    baseY += by * TILT_REBASE_STEP;
+                }
+            }
+            prevX = ax;
+            prevY = ay;
             float x = -(ax - baseX) / 4.2f;
             float y = (ay - baseY) / 4.2f;
             if (x > 1f) x = 1f;
@@ -396,6 +426,9 @@ public class MainActivity extends Activity {
         if (sensors != null && accel != null && tiltOn && started) {
             baseX = Float.NaN;
             baseY = Float.NaN;
+            prevX = Float.NaN;
+            prevY = Float.NaN;
+            lastTiltMove = 0L;
             /* A listener is registered at the rate it was given, so switching rate is an
                unregister + register. Dropped first, so the setting can only ever leave one
                registration behind and never two at different rates. */
