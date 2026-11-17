@@ -174,7 +174,7 @@ build.sh                                    full APK pipeline without Gradle
 tools/make_icons.py                         launcher icon generator
 tools/gen_preview.py                        preview harness (see below)
 tools/bench_first_frame.js                  first-frame benchmark on a 2000-photo library
-tools/test_suite.js                         the puppeteer regression suite (112 checks)
+tools/test_suite.js                         the puppeteer regression suite (114 checks)
 tools/leak_probe.js                         open/close the viewer N times and report what the page still holds
 docs/screenshots/                           screenshots
 ```
@@ -182,6 +182,29 @@ docs/screenshots/                           screenshots
 ## About the screenshots
 
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
+
+### 1.5.29 — day 8 of the 20-day optimisation plan, sixty-first pass
+No UI change, no new features. Item 79 of the plan: verify no wakelocks are held.
+- Verified, and pinned so it stays verified: the app never takes a wakelock. The manifest declares
+  six permissions — `READ_MEDIA_IMAGES`, `READ_MEDIA_VISUAL_USER_SELECTED`,
+  `READ_EXTERNAL_STORAGE`, `WRITE_EXTERNAL_STORAGE`, `VIBRATE`, `INTERNET` — and no `WAKE_LOCK`;
+  the Java shell carries no `PowerManager`, no `newWakeLock()`, no `setKeepScreenOn()` and no
+  `FLAG_KEEP_SCREEN_ON`; and the page never touches `navigator.wakeLock`. What both of them do
+  around power points the other way: the audio context is handed back when idle, a hidden page
+  stops the drift timer, the auto-scroll and the sound, and the accelerometer is unregistered in
+  `onStop()` — so the screen sleeps on the system timeout and nothing keeps the CPU up behind it.
+  The `SYSTEM_UI_FLAG_*` constants in the shell are edge-to-edge layout flags, not
+  `KEEP_SCREEN_ON`.
+- `tools/test_suite.js` gains two checks (114 total, all PASS): one reads the three sources the
+  build uses — the manifest, `MainActivity.java`, `index.html` — and asserts the permission list
+  holds no wake-family name, that the manifest carries no `keepScreenOn`, and that neither source
+  carries an acquisition call; the other drives a real session (boot, the viewer, a selection, a
+  tilt push) in a page whose `navigator.wakeLock` counts every read and records every request, and
+  requires the record to stay empty. The idle-window check added by 1.5.28 also starts its host
+  clock before the tap now instead of after the evaluate returns — a slow round trip could eat
+  part of the 2000 ms window and make a correct suspend look early. No app source changed for this
+  item — `app/assets/index.html` and `MainActivity.java` are byte-identical to 1.5.28, and the APK
+  differs only in version code and name.
 
 ### 1.5.28 — day 8 of the 20-day optimisation plan, sixtieth pass
 No UI change, no new features. Item 78 of the plan: the water-sound `AudioContext` is paused when
