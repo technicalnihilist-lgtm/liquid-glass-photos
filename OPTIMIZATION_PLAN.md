@@ -618,7 +618,28 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
   unregister-before-register order, the `tiltRegistered` gate and the carried baseline, and does
   the arithmetic against the page's 60 ms repaint and the 50 ms gate, so the rate cannot drift out
   of the window it has to sit in.
-- [ ] 78. Pause the water-sound AudioContext when idle.
+- [x] 78. Pause the water-sound AudioContext when idle. *(1.5.28)*
+  The page opened one `AudioContext` on the first tap and kept it running for the life of the page.
+  A running context holds its audio thread awake whether or not it is making a sound, and the plop
+  is over in 0.26 s, so everything after a tap was a thread doing nothing. The context is now handed
+  back once it has been quiet for `AC_IDLE_MS` (2000 ms, nearly eight times the longest plop, so a
+  suspend can never clip a sound) and the next tap that needs a sound resumes it inside the same
+  gesture — the same resume the page already did for a context the browser had suspended. One door
+  in and one door out: `ac()` stays the only place a context is created and the only place it is
+  resumed, `suspendAudio()` is the only place it is suspended, the idle timer is cleared and
+  re-armed on every use so a burst of taps arms one timer rather than one per tap, and a hidden
+  page suspends at once through a `visibilitychange` listener — the same hide the drift timer and
+  the sensor already answer. `suspendAudio()` refuses a context that is not running, and both
+  promises are caught so a browser that rejects a resume or a suspend cannot raise an unhandled
+  rejection. `plop()` and the sound itself are untouched: same three bubbles, same noise tail, same
+  volume, so nothing visible and nothing audible changes. `app/assets/index.html` changes by one
+  block, and no native change was needed — the WebView's audio session belongs to the page.
+  `tools/test_suite.js` gains two checks (112 total): one pins the single creation site, the single
+  resume and the single suspend, the `state !== 'running'` guard, the clear-before-arm in
+  `acIdle()`, the one `setTimeout` that arms it and the `visibilitychange` suspend; the other drives
+  a real page with a stubbed context — opened running by the first plop, still running half-way
+  through the window, suspended once the window passes, and resumed by the next plop — and does the
+  arithmetic against the page's own 0.26 s sound tail.
 - [ ] 79. Verify no wakelocks are held.
 - [ ] 80. Measure battery impact over 10 minutes of idle scroll.
 
