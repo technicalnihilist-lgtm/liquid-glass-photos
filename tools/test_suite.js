@@ -71,7 +71,7 @@ function stubFor(items, access, trim) {
     access +
     ',insetTop:74,insetBottom:48,light:false})},access(){return ' +
     access +
-    '},requestAccess(){},photos(){return ' + payload + '},favs(){return "[]"},setFav(){},share(){},delete(){},pick(){},theme(){},setTilt(){}};})();</script>'
+    '},requestAccess(){},photos(){return ' + payload + '},favs(){return "[]"},setFav(){},share(){},delete(){},pick(){},theme(){},setTilt(){},setOverlay(){}};})();</script>'
   );
 }
 
@@ -1709,13 +1709,14 @@ function check(name, ok, detail) {
 
   /* 40. The bridge surface carries only what the page calls. `info(String)` was a log relay the
          page stopped using: the page reaches the bridge as window.AndroidNative and every call it
-         makes is one of the eleven below. The method is gone, so the bridge no longer exposes a
+         makes is one of the twelve below (setOverlay() arrived with item 76, the sheet state the
+         tilt push is dropped on). The method is gone, so the bridge no longer exposes a
          channel nobody reads, and no call from the page can be silently swallowed by it. */
   const exposedMethods = (java.match(/@JavascriptInterface\s+public [\w.<>\[\]]+ (\w+)\(/g) || [])
     .map((sig) => sig.match(/(\w+)\($/)[1]);
   const jsBridgeCalls = new Set((asset.match(/\bN\.([A-Za-z_]+)/g) || []).map((s2) => s2.slice(2)));
   check('native bridge exposes only the methods the page calls (' + exposedMethods.length + ' method(s))',
-    exposedMethods.length === 11 &&
+    exposedMethods.length === 12 &&
     !/public void info\(String/.test(java) &&
     exposedMethods.every((m) => jsBridgeCalls.has(m)) &&
     jsBridgeCalls.size > 0);
@@ -2377,6 +2378,60 @@ function check(name, ok, detail) {
     settleMs > 0 && settleMs <= 4000,
     'band ' + bandUnits.toFixed(3) + ' vs deadband ' + deadband + ', step ' + stepUnits.toFixed(4) +
     ', settle ' + Math.round(settleMs) + ' ms after ' + idleMs + ' ms idle, eps ' + steadyEps + ' g');
+
+  /* 107. Item 76: a sheet puts its own scrim over the whole screen, so nothing under it answers
+          the sensor - but the listener still formatted a script and pushed it across the bridge
+          20 times a second. The push is now dropped while a sheet is open: the page reports the
+          first sheet open and the last one closed through one bridge call each way, the native
+          side skips the format and the hop, and only the push stops - the gate, the baseline and
+          the idle re-baseline still run, so the tilt a sheet closes onto is the current one. */
+  const setOverlayFn = (java.match(/public void setOverlay\(boolean on\)[\s\S]*?\n        \}/) || [''])[0];
+  check('the tilt push is dropped while a sheet is open, and only the push',
+    /private volatile boolean overlayOn = false;/.test(java) &&
+    /public void setOverlay\(boolean on\)/.test(setOverlayFn) &&
+    /overlayOn = on;/.test(setOverlayFn) &&
+    /if \(overlayOn\) return;/.test(sensorFn) &&
+    sensorFn.indexOf('if (overlayOn) return;') < sensorFn.indexOf('String.format') &&
+    sensorFn.indexOf('float x = -(ax - baseX)') < sensorFn.indexOf('if (overlayOn) return;') &&
+    sensorFn.indexOf('lastTiltMove = now;') < sensorFn.indexOf('if (overlayOn) return;') &&
+    (sensorFn.match(/eval\(/g) || []).length === 1 &&
+    (java.match(/window\.__native&&window\.__native\.tilt/g) || []).length === 1 &&
+    /if\(\+\+SHEET_OPEN===1&&N&&N\.setOverlay\)\{try\{N\.setOverlay\(true\)\}catch\(e\)\{\}\}/.test(pageTilt) &&
+    /if\(--SHEET_OPEN<=0\)\{SHEET_OPEN=0;if\(N&&N\.setOverlay\)\{try\{N\.setOverlay\(false\)\}catch\(e\)\{\}\}\}/.test(pageTilt) &&
+    (pageTilt.match(/N\.setOverlay\(/g) || []).length === 3);
+
+  /* 108. And it behaves: two sheets open report one "open" between them, closing one of the two
+          reports nothing, closing the last reports "closed", a second close of the same sheet
+          reports nothing again (the back key and the scrim both land on it), and a freshly loaded
+          page reports "no sheet" so a flag left behind by the last page can never mute the tilt. */
+  const ovPage = await browser.newPage();
+  currentStub = stubFor(library(COUNT), 'true').replace(
+    'setOverlay(){}',
+    'setOverlay(o){(window.__ov=window.__ov||[]).push(!!o)}'
+  );
+  await ovPage.goto(base, { waitUntil: 'load' });
+  const ovRun = await ovPage.evaluate(() => {
+    const boot = (window.__ov || []).slice();
+    window.__ov = [];
+    sheet('<h3>a</h3>');
+    const one = document.querySelectorAll('.sheet').length;
+    sheet('<h3>b</h3>');
+    const two = document.querySelectorAll('.sheet').length;
+    const scrims = [...document.querySelectorAll('.scrim')];
+    scrims[0].click();
+    const afterOne = window.__ov.slice();
+    scrims[1].click();
+    scrims[1].click();
+    return { boot, one, two, afterOne, ov: window.__ov.slice() };
+  });
+  await ovPage.close();
+  check('a sheet reports one open and one close however many taps it takes',
+    JSON.stringify(ovRun.boot) === '[false]' &&
+    ovRun.one === 1 && ovRun.two === 2 &&
+    JSON.stringify(ovRun.afterOne) === '[true]' &&
+    JSON.stringify(ovRun.ov) === '[true,false]',
+    'boot ' + JSON.stringify(ovRun.boot) + ', opened ' + JSON.stringify(ovRun.afterOne) +
+    ', all ' + JSON.stringify(ovRun.ov));
 
   await browser.close();
   server.close();
