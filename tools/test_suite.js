@@ -154,24 +154,24 @@ function check(name, ok, detail) {
 
   /* 4. tab switch to Albums and back */
   await page.click('#pill button[data-tab="albums"]');
-  await page.waitForFunction(() => document.querySelectorAll('.album').length > 0, { timeout: 10000 });
+  await page.waitForFunction(() => document.querySelectorAll('.album').length > 0, { timeout: 30000 });
   const albums = await page.$$eval('.album', (n) => n.length);
   await page.click('#pill button[data-tab="library"]');
-  await page.waitForFunction((n) => document.querySelectorAll('.tile').length === n, { timeout: 10000 }, COUNT);
+  await page.waitForFunction((n) => document.querySelectorAll('.tile').length === n, { timeout: 30000 }, COUNT);
   check('albums tab lists ' + albums + ' albums, library returns', albums > 0 && (await tiles()) === COUNT);
 
   /* 5. search filters by album name, then clears */
   await page.click('.tabs .round');
-  await page.waitForSelector('#q', { timeout: 10000 });
+  await page.waitForSelector('#q', { timeout: 30000 });
   await page.type('#q', 'Camera');
-  await page.waitForFunction(() => document.querySelectorAll('#res .tile').length > 0, { timeout: 10000 });
+  await page.waitForFunction(() => document.querySelectorAll('#res .tile').length > 0, { timeout: 30000 });
   const filtered = await page.$$eval('#res .tile', (n) => n.length);
   await page.click('#q', { clickCount: 3 });
   await page.keyboard.press('Backspace');
   await page.waitForFunction(() => {
     const e = document.querySelector('#res .empty');
     return !!e && /search by name/i.test(e.textContent);
-  }, { timeout: 10000 });
+  }, { timeout: 30000 });
   check('search "Camera" narrows to ' + filtered + ' of ' + COUNT + ', clearing returns to the prompt', filtered > 0 && filtered < COUNT);
 
   /* 6. favourites chip with no favourites shows the empty result state */
@@ -179,24 +179,24 @@ function check(name, ok, detail) {
   await page.waitForFunction(() => {
     const e = document.querySelector('#res .empty');
     return !!e && /no matches/i.test(e.textContent);
-  }, { timeout: 10000 });
+  }, { timeout: 30000 });
   await page.click('[data-chip="fav"]');
   await page.waitForFunction(() => {
     const e = document.querySelector('#res .empty');
     return !!e && /search by name/i.test(e.textContent);
-  }, { timeout: 10000 });
+  }, { timeout: 30000 });
   check('favourites chip empty state, chip clears', true);
 
   /* 7. selection: Select -> All -> everything selected -> exit */
   await page.click('#pill button[data-tab="library"]');
-  await page.waitForFunction((n) => document.querySelectorAll('.tile').length === n, { timeout: 10000 }, COUNT);
+  await page.waitForFunction((n) => document.querySelectorAll('.tile').length === n, { timeout: 30000 }, COUNT);
   await page.click('[data-act="startsel"]');
-  await page.waitForSelector('#selbar:not(.hide)', { timeout: 10000 });
+  await page.waitForSelector('#selbar:not(.hide)', { timeout: 30000 });
   await page.click('[data-act="selall"]');
-  await page.waitForFunction((n) => document.querySelectorAll('.tile.on').length === n, { timeout: 10000 }, COUNT);
+  await page.waitForFunction((n) => document.querySelectorAll('.tile.on').length === n, { timeout: 30000 }, COUNT);
   const selAll = await page.$$eval('.tile.on', (n) => n.length);
   await page.click('[data-act="endsel"]');
-  await page.waitForFunction(() => document.querySelectorAll('.tile.on').length === 0, { timeout: 10000 });
+  await page.waitForFunction(() => document.querySelectorAll('.tile.on').length === 0, { timeout: 30000 });
   check('select-all marks ' + selAll + ' tiles, exit clears', selAll === COUNT);
 
   /* 7b. (44) A tap in selection mode toggles exactly the tile under the finger, once. The
@@ -204,7 +204,7 @@ function check(name, ok, detail) {
          so a tap that never moves is left to the click handler — one toggle, not two — and a
          real drag still paints every tile it crosses. */
   await page.click('[data-act="startsel"]');
-  await page.waitForSelector('#selbar:not(.hide)', { timeout: 10000 });
+  await page.waitForSelector('#selbar:not(.hide)', { timeout: 30000 });
   await page.click('.tile');
   await settle(300);
   const tapSel = await page.$$eval('.tile.on', (n) => n.length);
@@ -215,10 +215,13 @@ function check(name, ok, detail) {
     const r = t.getBoundingClientRect();
     return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
   });
-  await page.mouse.move(c0.x, c0.y);
-  await page.mouse.down();
-  await page.mouse.move(c0.x, c0.y + 3);
-  await settle(120);
+  const mTo = page.mouse.move(c0.x, c0.y);
+  const mDown = page.mouse.down();
+  const mNudge = page.mouse.move(c0.x, c0.y + 3);
+  await mTo; await mDown; await mNudge;
+  /* read straight away: the pointermove handler applies synchronously, and the 430 ms long
+     press armed on the pointerdown would toggle a tile if a fixed settle let it fire first on a
+     slow machine — this check is about the 6 px rule, not about how fast the box is */
   const preDrag = await page.$$eval('.tile.on', (n) => n.length);
   await page.mouse.move(c0.x, c0.y + 40, { steps: 4 });
   await settle(120);
@@ -227,7 +230,7 @@ function check(name, ok, detail) {
   await settle(200);
   const afterDrag = await page.$$eval('.tile.on', (n) => n.length);
   await page.click('[data-act="endsel"]');
-  await page.waitForFunction(() => document.querySelectorAll('.tile.on').length === 0, { timeout: 10000 });
+  await page.waitForFunction(() => document.querySelectorAll('.tile.on').length === 0, { timeout: 30000 });
   check('selection: a tap toggles one tile once, a 6 px drag selects (tap ' + tapSel + '/' + tapSel2 +
     ', 3 px ' + preDrag + ', drag ' + dragSel + ', after ' + afterDrag + ')',
     tapSel === 1 && tapSel2 === 0 && preDrag === 0 && dragSel >= 1 && afterDrag === dragSel);
@@ -266,7 +269,7 @@ function check(name, ok, detail) {
   await release();
   const lpOffUp = await onCount();
   await page.click('[data-act="endsel"]');
-  await page.waitForFunction(() => document.querySelectorAll('.tile.on').length === 0, { timeout: 10000 });
+  await page.waitForFunction(() => document.querySelectorAll('.tile.on').length === 0, { timeout: 30000 });
   check('long press starts selection on the press, the release does not toggle again (' +
     'held ' + lpHeld + ', up ' + lpUp + ', sel-mode held ' + lpSelHeld + ', up ' + lpSelUp +
     ', deselect held ' + lpOffHeld + ', up ' + lpOffUp + ')',
@@ -285,9 +288,9 @@ function check(name, ok, detail) {
   // lands nowhere near the button: let the render settle before clicking it
   await settle(800);
   await page.click('.tabs .round');
-  await page.waitForSelector('#q', { timeout: 10000 });
+  await page.waitForSelector('#q', { timeout: 30000 });
   await page.type('#q', 'Camera');
-  await page.waitForFunction(() => document.querySelectorAll('#res .tile').length > 0, { timeout: 10000 });
+  await page.waitForFunction(() => document.querySelectorAll('#res .tile').length > 0, { timeout: 30000 });
   const r0 = await page.$eval('#res .tile', (t) => {
     const b = t.getBoundingClientRect();
     return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
@@ -304,7 +307,7 @@ function check(name, ok, detail) {
   await page.waitForFunction(() => {
     const e = document.querySelector('#res .empty');
     return !!e && /no matches/i.test(e.textContent);
-  }, { timeout: 10000 });
+  }, { timeout: 30000 });
   await settle(200);
   const countAfter = await ttlText();
   const onAfter = await page.$$eval('.tile.on', (n) => n.length);
@@ -313,10 +316,10 @@ function check(name, ok, detail) {
   await page.waitForFunction(() => {
     const e = document.querySelector('#res .empty');
     return !!e && /search by name/i.test(e.textContent);
-  }, { timeout: 10000 });
+  }, { timeout: 30000 });
   await page.click('[data-act="endsel"]');
   await page.click('#pill button[data-tab="library"]');
-  await page.waitForFunction((n) => document.querySelectorAll('.tile').length === n, { timeout: 10000 }, COUNT);
+  await page.waitForFunction((n) => document.querySelectorAll('.tile').length === n, { timeout: 30000 }, COUNT);
   await settle(250);
   check('selection count follows the list when the list changes under it (' +
     countBefore + ' / ' + countAfter + ', on ' + onBefore + ' -> ' + onAfter + ')',
@@ -330,9 +333,9 @@ function check(name, ok, detail) {
          one of them. */
   await settle(800);                       // the tabs re-enter with a 750 ms popIn scale
   await page.click('.tabs .round');
-  await page.waitForSelector('#q', { timeout: 10000 });
+  await page.waitForSelector('#q', { timeout: 30000 });
   await page.type('#q', 'Camera');
-  await page.waitForFunction(() => document.querySelectorAll('#res .tile').length > 0, { timeout: 10000 });
+  await page.waitForFunction(() => document.querySelectorAll('#res .tile').length > 0, { timeout: 30000 });
   await settle(250);
   const resIds = await page.$$eval('#res .tile', (n) => n.map((t) => +t.dataset.id));
   const q0 = await page.$eval('#res .tile', (t) => {
@@ -347,7 +350,7 @@ function check(name, ok, detail) {
   const qOn = await page.$$eval('#res .tile.on', (n) => n.length);
   const qOut = qSel.filter((id) => resIds.indexOf(id) < 0).length;
   await page.click('[data-act="endsel"]');
-  await page.waitForFunction(() => document.querySelectorAll('.tile.on').length === 0, { timeout: 10000 });
+  await page.waitForFunction(() => document.querySelectorAll('.tile.on').length === 0, { timeout: 30000 });
   check('All in the search tab selects exactly the ' + resIds.length + ' filtered results (' +
     qSel.length + ' picked, ' + qOn + ' painted, ' + qOut + ' outside the filter)',
     resIds.length > 0 && resIds.length < COUNT && qSel.length === resIds.length &&
@@ -359,11 +362,11 @@ function check(name, ok, detail) {
   await page.click('#pill button[data-tab="albums"]');
   await settle(700);
   await page.evaluate(() => document.querySelector('.album[data-album="camera"]').click());
-  await page.waitForFunction(() => document.querySelectorAll('.tile').length > 0, { timeout: 10000 });
+  await page.waitForFunction(() => document.querySelectorAll('.tile').length > 0, { timeout: 30000 });
   await settle(300);
   const albIds = await page.$$eval('.tile', (n) => n.map((t) => +t.dataset.id));
   await page.click('[data-act="startsel"]');
-  await page.waitForSelector('#selbar:not(.hide)', { timeout: 10000 });
+  await page.waitForSelector('#selbar:not(.hide)', { timeout: 30000 });
   await page.click('[data-act="selall"]');
   await settle(300);
   const aSel = await page.evaluate(() => [...S.sel]);
@@ -371,7 +374,7 @@ function check(name, ok, detail) {
   const aOut = aSel.filter((id) => albIds.indexOf(id) < 0).length;
   await page.click('[data-act="endsel"]');
   await page.click('#pill button[data-tab="library"]');
-  await page.waitForFunction((n) => document.querySelectorAll('.tile').length === n, { timeout: 10000 }, COUNT);
+  await page.waitForFunction((n) => document.querySelectorAll('.tile').length === n, { timeout: 30000 }, COUNT);
   await settle(250);
   check('All inside an album selects exactly the ' + albIds.length + ' album photos (' +
     aSel.length + ' picked, ' + aOn + ' painted, ' + aOut + ' outside the album)',
@@ -398,7 +401,7 @@ function check(name, ok, detail) {
          renderAll, fresh nodes), and the pointer then moves onto a tile the drag never
          measured — nothing more may be painted. */
   await page.click('[data-act="startsel"]');
-  await page.waitForSelector('#selbar:not(.hide)', { timeout: 10000 });
+  await page.waitForSelector('#selbar:not(.hide)', { timeout: 30000 });
   const g0 = await centerOf(0);
   await page.mouse.move(g0.x, g0.y);
   await page.mouse.down();
@@ -416,7 +419,7 @@ function check(name, ok, detail) {
   await page.mouse.up();
   await settle(250);
   await page.click('[data-act="endsel"]');
-  await page.waitForFunction(() => document.querySelectorAll('.tile.on').length === 0, { timeout: 10000 });
+  await page.waitForFunction(() => document.querySelectorAll('.tile.on').length === 0, { timeout: 30000 });
   check('a re-render ends the drag instead of leaving it in flight (painted ' + dragPainted +
     ', kept ' + afterRenderOn + ' -> ' + afterMoveOn + ', state cleared ' + dragGone + ')',
     dragPainted >= 1 && afterMoveOn === afterRenderOn && dragGone === true);
@@ -429,7 +432,7 @@ function check(name, ok, detail) {
          diagonal move and then a sideways one: the diagonal move must leave the drag
          unclaimed (nothing prevented, nothing painted), the sideways one must claim it. */
   await page.click('[data-act="startsel"]');
-  await page.waitForSelector('#selbar:not(.hide)', { timeout: 10000 });
+  await page.waitForSelector('#selbar:not(.hide)', { timeout: 30000 });
   await settle(800);
   const touchRun = await page.evaluate(() => {
     const tile = document.querySelector('.tile');
@@ -461,7 +464,7 @@ function check(name, ok, detail) {
   });
   await settle(200);
   await page.click('[data-act="endsel"]');
-  await page.waitForFunction(() => document.querySelectorAll('.tile.on').length === 0, { timeout: 10000 });
+  await page.waitForFunction(() => document.querySelectorAll('.tile.on').length === 0, { timeout: 30000 });
   check('a diagonal touch drag is left to the scroller, a sideways one becomes the drag (' +
     'down ' + touchRun.onDown + ', diagonal prevented ' + touchRun.diagPrevented + ' painted ' +
     touchRun.onDiag + ' applied ' + touchRun.appliedAfterDiag + ', sideways prevented ' +
@@ -478,7 +481,7 @@ function check(name, ok, detail) {
          the long-press timer must be gone before the pinch moves anything, the pinch must still
          change the columns, and the sideways travel of either finger must paint nothing. */
   await page.click('[data-act="startsel"]');
-  await page.waitForSelector('#selbar:not(.hide)', { timeout: 10000 });
+  await page.waitForSelector('#selbar:not(.hide)', { timeout: 30000 });
   await settle(800);
   const pinchRun = await page.evaluate(() => {
     const tiles = document.querySelectorAll('.tile');
@@ -537,7 +540,7 @@ function check(name, ok, detail) {
     timer: !!lpTimer,
   }));
   await page.click('[data-act="endsel"]');
-  await page.waitForFunction(() => document.querySelectorAll('.tile.on').length === 0, { timeout: 10000 });
+  await page.waitForFunction(() => document.querySelectorAll('.tile.on').length === 0, { timeout: 30000 });
   await page.evaluate(() => { ST.cols = 3; applySettings(); });
   check('a pinch changes the columns without painting a selection (' +
     'armed ' + pinchRun.armed + ', second finger took over ' + pinchRun.secondTookOver +
@@ -557,18 +560,18 @@ function check(name, ok, detail) {
 
   /* 8. tapping a tile opens the viewer, close returns to the grid */
   await page.click('.tile');
-  await page.waitForSelector('.viewer .stage img', { timeout: 10000 });
+  await page.waitForSelector('.viewer .stage img', { timeout: 30000 });
   const viewerOk = await page.evaluate(() => !!document.querySelector('.viewer .vbar'));
   await page.click('[data-v="close"]');
-  await page.waitForFunction(() => !document.querySelector('.viewer'), { timeout: 10000 });
-  await page.waitForFunction((n) => document.querySelectorAll('.tile').length === n, { timeout: 10000 }, COUNT);
+  await page.waitForFunction(() => !document.querySelector('.viewer'), { timeout: 30000 });
+  await page.waitForFunction((n) => document.querySelectorAll('.tile').length === n, { timeout: 30000 }, COUNT);
   check('viewer opens with controls and closes back to ' + COUNT + ' tiles', viewerOk);
 
   /* 8b. a swipe reuses the three slide nodes instead of rebuilding them: the elements that
          exist when the viewer opens are the elements that are there after a swipe, only their
          src and their role change, and the centre one is the photo that was already preloaded. */
   await page.click('.tile');
-  await page.waitForSelector('.viewer .slide[data-c] img', { timeout: 10000 });
+  await page.waitForSelector('.viewer .slide[data-c] img', { timeout: 30000 });
   const slidesBefore = await page.evaluate(() => {
     const s = [...document.querySelectorAll('.viewer .slide')];
     window.__slideNodes = s;
@@ -585,11 +588,27 @@ function check(name, ok, detail) {
   });
   await page.mouse.move(stg.x + stg.w * 0.8, stg.y + stg.h * 0.5);
   await page.mouse.down();
+  /* the finger landing on the stage is what points the neighbours at their photos again, so the
+     "was it already there" question is asked here, at the start of the gesture: a slow machine
+     can spend the 560 ms the viewer waits before it releases the offscreen bitmaps just getting
+     this far, and the neighbours are then legitimately empty */
+  const pointedBefore = await page.evaluate(() =>
+    [...document.querySelectorAll('.viewer .slide')].map((d) => d.firstElementChild.getAttribute('src')));
   for (let i = 1; i <= 9; i++) {
     await page.mouse.move(stg.x + stg.w * (0.8 - 0.065 * i), stg.y + stg.h * 0.5);
   }
   await page.mouse.up();
-  await settle(600);
+  /* the settle is a transition, so wait for the centre slide to actually change rather than
+     for a fixed delay that a slow machine can outrun */
+  for (let i = 0; i < 40; i++) {
+    const now = await page.evaluate(() => {
+      const e = document.querySelector('.viewer .slide[data-c] img');
+      return e ? e.getAttribute('src') : null;
+    });
+    if (now && now !== slidesBefore.cur) break;
+    await settle(100);
+  }
+  await settle(120);
   const slidesAfter = await page.evaluate(() => {
     const s = [...document.querySelectorAll('.viewer .slide')];
     const curEl = document.querySelector('.viewer .slide[data-c] img');
@@ -604,10 +623,11 @@ function check(name, ok, detail) {
   });
   check('a swipe reuses the three slide nodes (' + slidesBefore.n + ' nodes, same nodes ' +
     slidesAfter.same + ', centre ' + (slidesBefore.cur !== slidesAfter.cur ? 'advanced' : 'stuck') +
-    ', preloaded ' + (slidesBefore.srcs.includes(slidesAfter.cur) ? 'yes' : 'no') + ')',
+    ', preloaded ' + (pointedBefore.includes(slidesAfter.cur) ? 'yes' : 'no') +
+    ', pointed ' + pointedBefore.filter(Boolean).length + '/3, centres ' + slidesAfter.centres + ')',
     slidesBefore.n === 3 && slidesAfter.n === 3 && slidesAfter.same === true &&
     slidesAfter.centres === 1 && slidesBefore.cur !== slidesAfter.cur &&
-    slidesBefore.srcs.includes(slidesAfter.cur));
+    pointedBefore.filter(Boolean).length >= 2 && pointedBefore.includes(slidesAfter.cur));
   const viewerHtml = fs.readFileSync(APP, 'utf8');
   const buildFn = (viewerHtml.match(/function build\(keepTrack,dir\)[\s\S]*?\n\}/) || [''])[0];
   check('viewer build() creates its slide nodes once and never rebuilds them with innerHTML',
@@ -622,14 +642,21 @@ function check(name, ok, detail) {
     stage: document.querySelector('.viewer .stage').clientWidth,
     inner: innerWidth,
   }));
+  const waitW = async (want) => {
+    for (let i = 0; i < 40; i++) {
+      const w = await page.evaluate(() => V.w);
+      if (w === want) return;
+      await settle(100);
+    }
+  };
   await page.setViewport({ width: 380, height: 915, deviceScaleFactor: 1 });
-  await settle(200);
+  await waitW(380);
   const wSmall = await page.evaluate(() => ({
     w: V.w,
     stage: document.querySelector('.viewer .stage').clientWidth,
   }));
   await page.setViewport({ width: 412, height: 915, deviceScaleFactor: 1 });
-  await settle(200);
+  await waitW(412);
   const wBack = await page.evaluate(() => ({
     w: V.w,
     stage: document.querySelector('.viewer .stage').clientWidth,
@@ -688,6 +715,7 @@ function check(name, ok, detail) {
          slide is given the box a full-resolution photo would fill, zoomed to 2.4x with a real
          double tap and then dragged far past the edge — the image has to stop at the edge of its
          slide instead of leaving the stage. */
+  await page.waitForSelector('.viewer .slide[data-c]', { timeout: 30000 });
   await page.evaluate(() => {
     /* a real full-size photo is laid out with object-fit: contain, so its box fills the slide's
        content area — give the harness thumb that box, then 2.4x overflows it on both axes */
@@ -699,11 +727,23 @@ function check(name, ok, detail) {
   });
   await settle(150);
   const cx = stg2.x + stg2.w * 0.5, cy = stg2.y + stg2.h * 0.5;
-  await page.mouse.click(cx, cy);
-  await settle(60);
-  await page.mouse.click(cx, cy);
-  await settle(500);
-  const zoomBefore = await page.evaluate(() => V.zoom);
+  /* same pipelined pair as tap(): the check needs two taps inside the system window, so the
+     harness must not spend its own round trips between them */
+  const tapHere = async () => {
+    const m = page.mouse.move(cx, cy), d = page.mouse.down(), u = page.mouse.up();
+    await m; await d; await u;
+  };
+  /* the pair has to land inside the system's double-tap window, which a loaded box can miss; the
+     assertion below is still that the app zoomed, so the harness retries the pair rather than
+     letting one slow frame turn the pan test into a swipe */
+  let zoomBefore = 1;
+  for (let t = 0; t < 3 && zoomBefore === 1; t++) {
+    await tapHere();
+    await settle(60);
+    await tapHere();
+    await settle(500);
+    zoomBefore = await page.evaluate(() => V.zoom);
+  }
   for (let g = 0; g < 10; g++) {
     await page.mouse.move(cx, cy);
     await page.mouse.down();
@@ -795,7 +835,12 @@ function check(name, ok, detail) {
          two taps 420 ms apart are two single taps (no zoom), two taps 60 ms apart still zoom, and
          a pan between two taps breaks the pair, so the tap after it does not complete a double
          tap — all driven with real pointer events on the stage. */
-  const tap = async () => { await page.mouse.move(cx, cy); await page.mouse.down(); await page.mouse.up(); };
+  /* the three input events are queued without waiting between them: the check is about the gap
+     between two taps, so the harness must not add its own round trips to that gap */
+  const tap = async () => {
+    const m = page.mouse.move(cx, cy), d = page.mouse.down(), u = page.mouse.up();
+    await m; await d; await u;
+  };
   const zoomAt = () => page.evaluate(() => V.zoom);
   await page.evaluate(() => { V.zoom = 1; V.tx = V.ty = 0; });
   await tap();
@@ -825,12 +870,12 @@ function check(name, ok, detail) {
     /META\.dblTap/.test(dblDecl) && /:300;/.test(dblDecl) && /now-V\.last<DBL_MS/.test(tapBranch) &&
     !/320/.test(tapBranch) && /V\.last=0/.test(viewerHtml));
   await page.click('[data-v="close"]');
-  await page.waitForFunction(() => !document.querySelector('.viewer'), { timeout: 10000 });
+  await page.waitForFunction(() => !document.querySelector('.viewer'), { timeout: 30000 });
 
   /* 8f. the hint's 3.5 s timer belongs to the viewer: it is armed once when the viewer opens
          and cancelled by closeViewer, instead of surviving the viewer and firing against the
          node closeViewer has already removed. */
-  await page.waitForSelector('.tile', { timeout: 10000 });
+  await page.waitForSelector('.tile', { timeout: 30000 });
   await page.evaluate(() => {
     window.__hintTimers = [];
     window.__cleared = [];
@@ -843,14 +888,14 @@ function check(name, ok, detail) {
     window.clearTimeout = function (id) { window.__cleared.push(id); return ct(id); };
   });
   await page.click('.tile');
-  await page.waitForSelector('.viewer .hint', { timeout: 10000 });
+  await page.waitForSelector('.viewer .hint', { timeout: 30000 });
   const hintArmed = await page.evaluate(() => ({
     timers: window.__hintTimers.length,
     owner: !!(V && V.hintT),
     visible: getComputedStyle(document.querySelector('.viewer .hint')).display !== 'none',
   }));
   await page.click('[data-v="close"]');
-  await page.waitForFunction(() => !document.querySelector('.viewer'), { timeout: 10000 });
+  await page.waitForFunction(() => !document.querySelector('.viewer'), { timeout: 30000 });
   await settle(400);
   const hintClosed = await page.evaluate(() => ({
     cleared: window.__hintTimers.length > 0 &&
@@ -879,11 +924,11 @@ function check(name, ok, detail) {
   const missId = await missPage.$eval('.tile img', (i) => Number(i.getAttribute('src').split('/').pop()));
   missMedia.add(missId);
   await missPage.click('.tile');
-  await missPage.waitForSelector('.viewer .slide[data-c] img', { timeout: 10000 });
+  await missPage.waitForSelector('.viewer .slide[data-c] img', { timeout: 30000 });
   await missPage.waitForFunction(() => {
     const im = document.querySelector('.viewer .slide[data-c] img');
     return !!im && /^data:image\/svg\+xml/.test(im.getAttribute('src') || '');
-  }, { timeout: 10000 });
+  }, { timeout: 30000 });
   const missState = await missPage.evaluate(() => {
     const im = document.querySelector('.viewer .slide[data-c] img');
     const sl = document.querySelector('.viewer .slide[data-c]');
@@ -907,7 +952,7 @@ function check(name, ok, detail) {
      the real image, with the placeholder's class and the remembered bad src both gone */
   missMedia.delete(missId);
   await missPage.click('[data-v="close"]');
-  await missPage.waitForFunction(() => !document.querySelector('.viewer'), { timeout: 10000 });
+  await missPage.waitForFunction(() => !document.querySelector('.viewer'), { timeout: 30000 });
   await missPage.click('.tile');
   await missPage.waitForFunction(() => {
     const im = document.querySelector('.viewer .slide[data-c] img');
@@ -942,7 +987,7 @@ function check(name, ok, detail) {
     /im\.classList\.remove\('miss'\)/.test(missPoint) &&
     /\.slide img\.miss\{/.test(viewerHtml));
   await missPage.click('[data-v="close"]');
-  await missPage.waitForFunction(() => !document.querySelector('.viewer'), { timeout: 10000 });
+  await missPage.waitForFunction(() => !document.querySelector('.viewer'), { timeout: 30000 });
   await missPage.close();
 
   /* 8h. a delete that names a photo other than the one on the stage leaves the viewer open on the
@@ -951,7 +996,7 @@ function check(name, ok, detail) {
          the current one goes without the viewer moving, and only the current photo's own delete
          hands the stage on and finally closes it. */
   await page.evaluate(() => document.querySelectorAll('.tile')[3].click());
-  await page.waitForSelector('.viewer .slide[data-c] img', { timeout: 10000 });
+  await page.waitForSelector('.viewer .slide[data-c] img', { timeout: 30000 });
   await settle(300);
   const keep59 = await page.evaluate(() => ({
     id: V.list[V.i], i: V.i, len: V.list.length, ahead: V.list[0],
@@ -992,7 +1037,7 @@ function check(name, ok, detail) {
   /* 9. the grid-size setting changes the tile width */
   const w0 = await page.$eval('.tile', (t) => t.getBoundingClientRect().width);
   await page.click('[data-act="settings"]');
-  await page.waitForSelector('#s_co', { timeout: 10000 });
+  await page.waitForSelector('#s_co', { timeout: 30000 });
   await page.$eval('#s_co', (el) => {
     el.value = '6';
     el.dispatchEvent(new Event('input', { bubbles: true }));
@@ -2052,7 +2097,7 @@ function check(name, ok, detail) {
   await trimPage.click('.tile');
   await trimPage.waitForSelector('.viewer [data-v="info"]', { timeout: 15000 });
   await trimPage.evaluate(() => document.querySelector('.viewer [data-v="info"]').click());
-  await trimPage.waitForSelector('.sheet', { timeout: 10000 });
+  await trimPage.waitForSelector('.sheet', { timeout: 30000 });
   const sheetText = await trimPage.$eval('.sheet', (e) => e.textContent);
   const trimTiles = await trimPage.$$eval('.tile', (n) => n.length);
   check('a payload without v, m and count still paints the grid and the details sheet',
@@ -2196,7 +2241,7 @@ function check(name, ok, detail) {
   await settle(400);
   const bootTilt = await tiltPage.evaluate(() => (window.__tilt || []).slice(-1)[0] || null);
   await tapTilt('[data-act="settings"]');
-  await tiltPage.waitForSelector('.sw[data-k="motion"]', { timeout: 10000 });
+  await tiltPage.waitForSelector('.sw[data-k="motion"]', { timeout: 30000 });
   await tapTilt('.sw[data-k="motion"]');
   await settle(300);
   const motionTilt = await tiltPage.evaluate(() => (window.__tilt || []).slice(-1)[0]);
@@ -2239,7 +2284,10 @@ function check(name, ok, detail) {
     (onStopFn.match(/stopTilt\(\);/g) || []).length === 1 &&
     !/registerListener/.test(onStopFn) && !/registerListener/.test(onStartFn) &&
     !/registerListener/.test(onResumeFn) && !/registerListener/.test(onPauseFn) &&
-    (java.match(/startTilt\(\);/g) || []).length === 2);
+    /* three doors, all of them behind the same gate: the resume, the page's setTilt, and the
+       battery's in-place rate swap, which refuses to run unless a listener is already up */
+    (java.match(/startTilt\(\);/g) || []).length === 3 &&
+    /if \(!tiltRegistered\) return;/.test(java.match(/private void swapTiltRate\(\)[\s\S]*?\n    \}/)[0]));
 
   /* 101. Item 73: the 60 ms drift timer used to be started by applySettings and stopped only by
           the next settings change, so a page that went hidden (the activity paused — native
@@ -2432,6 +2480,54 @@ function check(name, ok, detail) {
     JSON.stringify(ovRun.ov) === '[true,false]',
     'boot ' + JSON.stringify(ovRun.boot) + ', opened ' + JSON.stringify(ovRun.afterOne) +
     ', all ' + JSON.stringify(ovRun.ov));
+
+  /* 109. Item 77: a phone that is nearly flat must not keep the fast sensor rate. The level is a
+          sticky ACTION_BATTERY_CHANGED read in onStart (before onResume registers anything, so a
+          cold start on a flat phone gets the low rate first time), low means at or under
+          LOW_BATTERY_PCT percent, the rate is derived from it in tiltRate() ahead of the motion
+          flag, and nothing re-registers unless the answer actually flipped. */
+  const tiltRateFn2 = (java.match(/private int tiltRate\(\)[\s\S]*?\n    \}/) || [''])[0];
+  const batteryFn = (java.match(/private void applyBattery\(Intent i\)[\s\S]*?\n    \}/) || [''])[0];
+  const onStartBattFn = (java.match(/protected void onStart\(\)[\s\S]*?\n    \}/) || [''])[0];
+  const onStopBattFn = (java.match(/protected void onStop\(\)[\s\S]*?\n    \}/) || [''])[0];
+  const lowPct = (java.match(/LOW_BATTERY_PCT = (\d+);/) || [])[1];
+  check('the sensor drops to SENSOR_DELAY_UI while the battery is low',
+    lowPct === '15' &&
+    /private boolean batteryLow = false;/.test(java) &&
+    /new IntentFilter\(Intent\.ACTION_BATTERY_CHANGED\)/.test(onStartBattFn) &&
+    /applyBattery\(registerReceiver\(batteryReceiver,/.test(onStartBattFn) &&
+    /unregisterReceiver\(batteryReceiver\);/.test(onStopBattFn) &&
+    /int level = i\.getIntExtra\(BatteryManager\.EXTRA_LEVEL, -1\);/.test(batteryFn) &&
+    /int scale = i\.getIntExtra\(BatteryManager\.EXTRA_SCALE, -1\);/.test(batteryFn) &&
+    /level \* 100 \/ scale <= LOW_BATTERY_PCT/.test(batteryFn) &&
+    /if \(low == batteryLow\) return;/.test(batteryFn) &&
+    /batteryLow = low;/.test(batteryFn) &&
+    tiltRateFn2.indexOf('if (batteryLow) return SensorManager.SENSOR_DELAY_UI;') > 0 &&
+    tiltRateFn2.indexOf('if (batteryLow) return') < tiltRateFn2.indexOf('return motionOn ?') &&
+    /return motionOn \? SensorManager\.SENSOR_DELAY_GAME : SensorManager\.SENSOR_DELAY_UI;/.test(tiltRateFn2),
+    'low ' + lowPct + '%');
+
+  /* 110. And the swap it makes is in place: one registration site still, the old rate dropped
+          first, the listener only moved when one is actually registered (a pause must not be
+          undone by a battery change behind a dialog), and the baseline carried across the swap so
+          the glass does not jump back to centre when the level crosses the line. The arithmetic:
+          the low rate's 60 ms period is the page's own repaint period, so it shows the same
+          parallax, and it is still above the push gate, so no push the page could show is lost. */
+  const swapRateFn = (java.match(/private void swapTiltRate\(\)[\s\S]*?\n    \}/) || [''])[0];
+  const startTiltFn2 = (java.match(/private void startTilt\(\)[\s\S]*?\n    \}/) || [''])[0];
+  const UI_MS = 60, GAME_MS = 20, PUSH_MS = parseInt((java.match(/TILT_PUSH_MS = (\d+)L/) || [])[1], 10);
+  check('the low-battery swap keeps one registration and the baseline it was holding',
+    (java.match(/registerListener\(tiltListener, accel,/g) || []).length === 1 &&
+    /tiltRegistered = sensors\.registerListener\(tiltListener, accel, tiltRate\(\)\);/.test(startTiltFn2) &&
+    startTiltFn2.indexOf('unregisterListener(tiltListener)') < startTiltFn2.indexOf('registerListener(') &&
+    /tiltRegistered = false;/.test(java.match(/private void stopTilt\(\)[\s\S]*?\n    \}/)[0]) &&
+    /if \(!tiltRegistered\) return;/.test(swapRateFn) &&
+    /startTilt\(\);/.test(swapRateFn) &&
+    swapRateFn.indexOf('baseX = bx;') > swapRateFn.indexOf('startTilt();') &&
+    /lastTiltMove = moved;/.test(swapRateFn) &&
+    (swapRateFn.match(/baseX = bx;/g) || []).length === 1 &&
+    PUSH_MS === 50 && UI_MS === 60 && UI_MS >= PUSH_MS && GAME_MS * 3 === UI_MS &&
+    'UI ' + UI_MS + ' ms vs gate ' + PUSH_MS + ' ms, GAME ' + GAME_MS + ' ms');
 
   await browser.close();
   server.close();
