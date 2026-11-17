@@ -2529,6 +2529,91 @@ function check(name, ok, detail) {
     PUSH_MS === 50 && UI_MS === 60 && UI_MS >= PUSH_MS && GAME_MS * 3 === UI_MS &&
     'UI ' + UI_MS + ' ms vs gate ' + PUSH_MS + ' ms, GAME ' + GAME_MS + ' ms');
 
+  /* 111. Item 78: a running AudioContext keeps an audio thread awake after the sound it made has
+          finished ringing out, and the page created one on the first tap and left it running for
+          the life of the page. It is now handed back when it goes idle: one creation site, one
+          resume (inside ac(), so a tap that needs sound gets it), one suspend door, reached from a
+          single idle timer that is cleared and re-armed on every use, and from a hidden page. */
+  const pageAudio = fs.readFileSync(APP, 'utf8');
+  const acFn = (pageAudio.match(/function ac\(\)\{[\s\S]*?\n\}/) || [''])[0];
+  const suspendFn = (pageAudio.match(/function suspendAudio\(\)\{[\s\S]*?\n\}/) || [''])[0];
+  const acIdleFn = (pageAudio.match(/function acIdle\(\)\{[\s\S]*?\n\}/) || [''])[0];
+  const AC_IDLE_MS = parseInt((pageAudio.match(/AC_IDLE_MS=(\d+)/) || [])[1], 10);
+  check('the water-sound context is handed back when it goes idle',
+    (pageAudio.match(/new \(window\.AudioContext/g) || []).length === 1 &&
+    /let AC=null, ACIDLE=null;/.test(pageAudio) &&
+    /if\(!AC\|\|AC\.state!=='running'\)return;/.test(suspendFn) &&
+    (pageAudio.match(/AC\.suspend\(/g) || []).length === 1 &&
+    /p\.catch\(\(\)=>\{\}\)/.test(suspendFn) &&
+    /if\(!AC\)return;/.test(acIdleFn) &&
+    acIdleFn.indexOf('clearTimeout(ACIDLE);') < acIdleFn.indexOf('ACIDLE=setTimeout(') &&
+    /ACIDLE=setTimeout\(\(\)=>\{ACIDLE=null;suspendAudio\(\)\},AC_IDLE_MS\)/.test(acIdleFn) &&
+    (pageAudio.match(/ACIDLE=setTimeout\(/g) || []).length === 1 &&
+    (pageAudio.match(/AC\.resume\(/g) || []).length === 1 &&
+    acFn.indexOf("AC.state==='suspended'") < acFn.indexOf('AC.resume(') &&
+    acFn.indexOf('AC.resume(') < acFn.indexOf('acIdle();') &&
+    (acFn.match(/acIdle\(\);/g) || []).length === 1 &&
+    /document\.addEventListener\('visibilitychange',\(\)=>\{if\(document\.hidden\)suspendAudio\(\)\}\);/.test(pageAudio),
+    'idle ' + AC_IDLE_MS + ' ms');
+
+  /* 112. And it behaves: the context is opened running by the first plop, is still running well
+          inside the quiet window (a suspend that landed there would clip the sound), is suspended
+          once the window passes, and the next plop resumes it and plays. The window itself is
+          checked against the longest sound the page makes — the third bubble starts at 0.11 s,
+          rings for 0.10 s and stops 0.05 s later, so 0.26 s is the tail a suspend must not cut. */
+  const FAKE_AC =
+    '<script>(function(){' +
+    'window.__ac=null;window.__acCalls=[];' +
+    'function n(extra){return Object.assign({connect(x){return x}},extra)}' +
+    'class FakeAC{' +
+    'constructor(){this.state="running";this.currentTime=0;this.sampleRate=8000;this.destination={};window.__ac=this}' +
+    'resume(){window.__acCalls.push("resume");this.state="running";return Promise.resolve()}' +
+    'suspend(){window.__acCalls.push("suspend");this.state="suspended";return Promise.resolve()}' +
+    'createOscillator(){return n({type:"sine",frequency:{setValueAtTime(){},exponentialRampToValueAtTime(){}},start(){},stop(){}})}' +
+    'createGain(){return n({gain:{value:0,setValueAtTime(){},exponentialRampToValueAtTime(){}}})}' +
+    'createBuffer(ch,len){return {getChannelData(){return new Float32Array(len)}}}' +
+    'createBufferSource(){return n({buffer:null,start(){},stop(){}})}' +
+    'createBiquadFilter(){return n({type:"bandpass",frequency:{value:0},Q:{value:0}})}' +
+    '}' +
+    'window.AudioContext=FakeAC;' +
+    '})();</script>';
+  currentStub = stubFor(library(COUNT), 'true') + FAKE_AC;
+  const acPage = await browser.newPage();
+  const acErrors = [];
+  acPage.on('pageerror', (e) => acErrors.push(String(e && e.message)));
+  await acPage.goto(base, { waitUntil: 'load' });
+  await acPage.bringToFront();
+  const acStart = await acPage.evaluate(() => {
+    ST.sound = true;
+    plop();
+    return { calls: window.__acCalls.slice(), state: window.__ac ? window.__ac.state : null };
+  });
+  const acT0 = Date.now();
+  await new Promise((r) => setTimeout(r, Math.round(AC_IDLE_MS / 2)));
+  const acMid = await acPage.evaluate(() => ({ calls: window.__acCalls.slice(), state: window.__ac.state }));
+  /* wait for the suspend rather than sleeping the exact window: a busy box can delay a timer,
+     and this check is about the suspend happening once the window passes, not about the millisecond */
+  await acPage.waitForFunction(() => window.__ac && window.__ac.state === 'suspended', { timeout: 15000, polling: 100 }).catch(() => {});
+  const acWaited = Date.now() - acT0;
+  const acIdle = await acPage.evaluate(() => ({ calls: window.__acCalls.slice(), state: window.__ac.state }));
+  const acAgain = await acPage.evaluate(() => {
+    plop();
+    return { calls: window.__acCalls.slice(), state: window.__ac.state };
+  });
+  await acPage.close();
+  const tailOk = /bubble\(900,1900,\.11,\.1,/.test(pageAudio) && /o\.stop\(t\+start\+dur\+\.05\)/.test(pageAudio);
+  const TAIL_MS = Math.round((0.11 + 0.1 + 0.05) * 1000);
+  check('an idle context suspends, a tapped one resumes and still plays',
+    acStart.state === 'running' && JSON.stringify(acStart.calls) === '[]' &&
+    acMid.state === 'running' && JSON.stringify(acMid.calls) === '[]' &&
+    acIdle.state === 'suspended' && JSON.stringify(acIdle.calls) === '["suspend"]' &&
+    acAgain.state === 'running' && JSON.stringify(acAgain.calls) === '["suspend","resume"]' &&
+    acErrors.length === 0 &&
+    tailOk && AC_IDLE_MS >= TAIL_MS * 4 && AC_IDLE_MS <= 5000 &&
+    acWaited >= AC_IDLE_MS && acWaited <= AC_IDLE_MS * 4,
+    'tail ' + TAIL_MS + ' ms vs idle ' + AC_IDLE_MS + ' ms, suspended after ' + acWaited +
+    ' ms, calls ' + JSON.stringify(acAgain.calls));
+
   await browser.close();
   server.close();
 
