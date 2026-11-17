@@ -873,12 +873,23 @@ $('#file').addEventListener('change',e=>{
 });
 
 /* ---------- sheets ---------- */
+/* 76. A sheet covers the screen with its own scrim, so nothing under it answers the sensor: the
+   page tells the bridge as the first sheet opens and the last one closes, and the native side
+   drops its tilt push in between. Only the push stops — the page keeps its own drift and its own
+   repaint, so closing a sheet resumes the parallax on the value it already holds. */
+let SHEET_OPEN=0;
 function sheet(html,onMount){
   const sc=document.createElement('div');sc.className='scrim';
   const sh=document.createElement('div');sh.className='sheet glass';sh.innerHTML=html;
   document.body.append(sc,sh);
+  if(++SHEET_OPEN===1&&N&&N.setOverlay){try{N.setOverlay(true)}catch(e){}}
   requestAnimationFrame(()=>requestAnimationFrame(()=>{sc.classList.add('in');sh.classList.add('in')}));
-  const close=()=>{sc.classList.remove('in');sh.classList.remove('in');setTimeout(()=>{sc.remove();sh.remove()},500)};
+  let shut=false;
+  const close=()=>{
+    if(shut)return;shut=true;
+    sc.classList.remove('in');sh.classList.remove('in');setTimeout(()=>{sc.remove();sh.remove()},500);
+    if(--SHEET_OPEN<=0){SHEET_OPEN=0;if(N&&N.setOverlay){try{N.setOverlay(false)}catch(e){}}}
+  };
   sc.addEventListener('click',close);
   onMount&&onMount(sh,close);
 }
@@ -1207,6 +1218,8 @@ window.__native={
 
 /* ---------- init ---------- */
 applySettings();
+/* 76. A fresh page owns no sheet, whatever the last one left behind. */
+if(N&&N.setOverlay){try{N.setOverlay(false)}catch(e){}}
 window.__native.insets(META.insetTop,META.insetBottom);
 bootAnim();
 LOADED=false;
