@@ -557,7 +557,22 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
   `String.format`, the single `eval` in the listener and the single place the tilt string is built;
   the other does the arithmetic against both sensor rates and the page's 60 ms drift, so the
   number cannot drift out of the window it has to sit in.
-- [ ] 75. Re-baseline the tilt after a long idle so it does not drift.
+- [x] 75. Re-baseline the tilt after a long idle so it does not drift. *(1.5.25)*
+  The baseline the parallax is measured against was captured once, in `startTilt()` when depth is
+  switched on, and never revisited. Accelerometer bias and thermal drift move the sensor's zero
+  point under it over a long idle, so the parallax ended up leaning — and because the page only
+  breathes inside its own `|x|,|y| < 0.06` deadband, the idle drift stopped with it and the glass
+  sat still, off centre. A reading that has not moved by more than `TILT_STEADY_EPS` (0.02 g) for
+  `TILT_IDLE_MS` (2.5 s) is now the zero point, and the baseline eases onto it
+  `TILT_REBASE_STEP` (5%) at a time, inside `TILT_REBASE_MAX` (0.25 g, the offset the page's 0.06
+  deadband covers: 0.06 × 4.2). Under three seconds to settle at the 20 pushes a second the gate
+  already allows, 0.003 of a unit per push, so nothing jumps, and a tilt the user is deliberately
+  holding is never corrected away. It rides the existing pushes after the gate, so it adds no
+  bridge call and no wakeup; `app/assets/index.html` is byte-identical to 1.5.24.
+  `tools/test_suite.js` gains two checks (106 total): one pins the constants, the steady test
+  against the raw reading, the band guard and the reset in `startTilt()`; the other does the
+  arithmetic against the page's deadband and the push rate, so the band, the step and the settle
+  time cannot drift out of the window they have to sit in.
 - [ ] 76. Skip tilt pushes while a sheet is open (nothing visible moves).
 - [ ] 77. Use `SENSOR_DELAY_UI` when the battery is low.
 - [ ] 78. Pause the water-sound AudioContext when idle.
