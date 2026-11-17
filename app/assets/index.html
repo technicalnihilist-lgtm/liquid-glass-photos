@@ -305,8 +305,31 @@ if(!N){
 }
 
 /* ---------- water sound ---------- */
-let AC=null;
-function ac(){ if(!AC){ try{AC=new (window.AudioContext||window.webkitAudioContext)()}catch(e){} } if(AC&&AC.state==='suspended')AC.resume(); return AC; }
+/* A running AudioContext is the one thing in this page that keeps a thread awake after the sound
+   it made has already finished ringing out, so it is handed back once the last plop is done.
+   AC_IDLE_MS is that quiet window: longer than the longest plop (the three bubbles end 0.26 s
+   after the tap, the noise tail 0.12 s), so a suspend can never clip a sound, and short enough
+   that a context opened by a single tap does not outlive the tap by more than a couple of seconds.
+   One door in (ac(), which resumes on demand) and one door out (suspendAudio(), reached from the
+   idle timer and from a hidden page). */
+let AC=null, ACIDLE=null;
+const AC_IDLE_MS=2000;
+function suspendAudio(){
+  if(!AC||AC.state!=='running')return;
+  try{const p=AC.suspend();if(p&&p.catch)p.catch(()=>{})}catch(e){}
+}
+function acIdle(){
+  if(!AC)return;
+  clearTimeout(ACIDLE);
+  ACIDLE=setTimeout(()=>{ACIDLE=null;suspendAudio()},AC_IDLE_MS);
+}
+function ac(){
+  if(!AC){ try{AC=new (window.AudioContext||window.webkitAudioContext)()}catch(e){} }
+  if(AC&&AC.state==='suspended'){try{const p=AC.resume();if(p&&p.catch)p.catch(()=>{})}catch(e){}}
+  acIdle();
+  return AC;
+}
+document.addEventListener('visibilitychange',()=>{if(document.hidden)suspendAudio()});
 function plop(strength=1){
   if(!ST.sound)return; const c=ac(); if(!c)return;
   const v=(ST.vol/100)*0.5*strength, t=c.currentTime;
