@@ -590,7 +590,34 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
   format, the three `setOverlay` call sites and the guard that the rebase still runs before it;
   the other drives two sheets in a real page and asserts the open/close reporting, the double
   close and the init reset.
-- [ ] 77. Use `SENSOR_DELAY_UI` when the battery is low.
+- [x] 77. Use `SENSOR_DELAY_UI` when the battery is low. *(1.5.27)*
+  With 4D motion on the accelerometer was registered at `SENSOR_DELAY_GAME` — an event every
+  20 ms — whatever the charge, so a phone in its last percent kept paying the fast rate for a
+  parallax the page repaints at most every 60 ms. The level is now read from the sticky
+  `ACTION_BATTERY_CHANGED` broadcast in `onStart()`, before `onResume()` registers anything, so a
+  cold start on a flat phone gets the low rate first time, and the receiver is dropped again in
+  `onStop()`: the level is sticky, so the next `onStart()` reads the current one rather than
+  needing the app to be running behind a screen nobody is looking at. `applyBattery()` keeps one
+  boolean, `batteryLow`, true at or under `LOW_BATTERY_PCT` (15%, the system's own low level) and
+  false above it, and returns unless that answer actually flipped, so the steady stream of level
+  broadcasts costs a subtraction and never a re-registration. `tiltRate()` answers the low rate
+  first and the motion flag second, so low charge outranks 4D motion: `SENSOR_DELAY_UI` is 60 ms,
+  exactly the period the page repaints the parallax at, so the movement on screen is the movement
+  it already had. Only the rate moves — the 50 ms push gate, the baseline, the idle re-baseline
+  and the sheet's overlay drop all keep running — and the swap goes through `startTilt()`, the one
+  registration site, with the old rate dropped first. Because `startTilt()` also captures a fresh
+  baseline, the swap is made through `swapTiltRate()`, which carries the baseline, the previous
+  reading and the idle clock across the re-registration, so the glass does not jump back to centre
+  when the level crosses the line; and because a pause drops the listener without stopping the
+  activity, the swap refuses to run unless `tiltRegistered` is up, so a battery change behind a
+  dialog cannot put the sensor back on. `app/assets/index.html` is byte-identical to 1.5.26.
+  `tools/test_suite.js` gains two checks (110 total): one pins the threshold, the sticky
+  registration and its position in `onStart()`, the unregister in `onStop()`, the level/scale
+  arithmetic, the early return when the answer has not changed and the order of the two answers
+  in `tiltRate()`; the other pins the single `registerListener` call site, the
+  unregister-before-register order, the `tiltRegistered` gate and the carried baseline, and does
+  the arithmetic against the page's 60 ms repaint and the 50 ms gate, so the rate cannot drift out
+  of the window it has to sit in.
 - [ ] 78. Pause the water-sound AudioContext when idle.
 - [ ] 79. Verify no wakelocks are held.
 - [ ] 80. Measure battery impact over 10 minutes of idle scroll.
