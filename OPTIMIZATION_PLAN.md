@@ -740,7 +740,7 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
   header, the tab bar, the selection bar and the search button on a real page while a read that adds
   a photo lands — the grid has to grow to 61 tiles and the chrome has to be written zero times
   (16 writes during the boot).
-- [ ] 83. Precompile the icon strings once instead of on every render.
+- [x] 83. Precompile the icon strings once instead of on every render — done: the icon markup is parsed once into a `<template>` per distinct string and cloned on every later render, through one `fill(el, html)` helper used by `renderHead`, `renderTabs`, the viewer shell and the viewer bar, so the six icons a `renderTabs()` used to re-parse are copied instead (0.41 ms → 0.19 ms of parse work per chrome render, 826 ms → 372 ms over 2000 renders) with byte-identical markup in the library, selection, trash and search states. The grid keeps its one-pass 14 KB parse, which measured faster than 60 clones (3.8 ms vs 4.9 ms). *(1.5.33)*
 - [ ] 84. Cut the number of `setTimeout` calls in the boot path.
 - [ ] 85. Show the cached library immediately on a warm start.
 - [ ] 86. Skip the boot animation when the process was already alive.
