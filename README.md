@@ -213,7 +213,7 @@ tools/make_icons.py                         launcher icon generator
 tools/gen_preview.py                        preview harness (see below)
 tools/bench_first_frame.js                  first-frame benchmark on a 2000-photo library
 tools/bench_idle_scroll.js                  idle-scroll CPU benchmark (item 80)
-tools/test_suite.js                         the puppeteer regression suite (116 checks)
+tools/test_suite.js                         the puppeteer regression suite (118 checks)
 tools/leak_probe.js                         open/close the viewer N times and report what the page still holds
 docs/screenshots/                           screenshots
 ```
@@ -221,6 +221,29 @@ docs/screenshots/                           screenshots
 ## About the screenshots
 
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
+
+### 1.5.31 — day 9 of the 20-day optimisation plan, eighty-first pass
+No UI change, no new features. Item 81 of the plan: the first library load waits for the first paint.
+- The boot did the right things in the wrong order. `renderAll()` drew the shell, and then a
+  `setTimeout(…, 60)` asked for the permission and read the library. Sixty milliseconds is a guess,
+  not a paint: on a cold start that timer can fire while the first frame is still waiting for a
+  raster, so the MediaStore query and the grid build land on top of the frame that was supposed to
+  be on screen first.
+- The read now waits for the **second animation frame** — the first frame callback runs before the
+  present, the second after it — and, if the page is not visible yet, for the visibility it needs to
+  paint at all, so a hidden page cannot swallow the load. `requestAccess()` still goes out ahead of
+  the read, in the same callback. The shell paints the same loading state as before; it is simply on
+  screen before anything is read instead of being raced by a timer. Measured with
+  `tools/bench_first_frame.js` at 2000 photos, the shell still paints at 214 ms against 209 ms before
+  (run-to-run noise), the read now lands on frame 2 (986–1416 ms on the suite's 60-photo page), and
+  the loading state is visible for two frames instead of 60 ms. No native change:
+  `MainActivity.java` is byte-identical to 1.5.30.
+- `tools/test_suite.js` gains two checks (118 total, all PASS): one pins the order on the source —
+  the shell render ahead of the gate, the gate built from two animation frames with the visibility
+  fallback, `requestAccess()` and `loadLibrary()` inside it, and no `setTimeout` on the read — and
+  one drives a real page whose stub records the document at the instant `photos()` is called,
+  requiring the read to land in a later frame than the shell render, on frame two, with the header
+  laid out, the present animation running and an empty grid, then all 60 tiles after it.
 
 ### 1.5.30 — day 8 of the 20-day optimisation plan, sixty-second pass
 No UI change, no new features. Item 80 of the plan: measure the battery impact of ten minutes of
