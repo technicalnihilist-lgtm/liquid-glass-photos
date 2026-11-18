@@ -243,6 +243,24 @@ const I={
 };
 const FAV='<svg class="fv" viewBox="0 0 24 24" style="stroke:none"><path d="M12 20s-7.5-4.6-9-9.3C2 7.5 4 5 6.8 5c1.9 0 3.5 1 5.2 3 1.7-2 3.3-3 5.2-3C20 5 22 7.5 21 10.7 19.5 15.4 12 20 12 20z"/></svg>';
 
+/* The icon markup above is constant, but every write of it went through innerHTML, so the
+   HTML parser rebuilt each <svg> from source on every render: the tab pill, the search round,
+   the selection bar and the viewer bar are rewritten on each screen change and each viewer
+   slide. The first time a markup string is needed it is parsed on the element that needs it
+   and a <template> is kept beside it; from then on a render copies nodes out of that template
+   instead of handing the SVG source back to the HTML parser. Same nodes, same markup, same
+   classes — only the parse happens once. */
+const TPL=new Map();
+function fill(el,html){
+  const t=TPL.get(html);
+  if(!t){                       // first use of this markup: parse it here, keep a template
+    el.innerHTML=html;
+    const k=document.createElement('template');k.innerHTML=html;TPL.set(html,k);
+    return;
+  }
+  el.replaceChildren(t.content.cloneNode(true));
+}
+
 /* ---------- native bridge ---------- */
 const N = window.AndroidNative || null;
 const META = (()=>{ try{ return N ? JSON.parse(N.meta()) : {}; }catch(e){ return {}; } })();
@@ -475,7 +493,7 @@ function renderHead(){
     if(S.tab==='library'||(S.tab==='albums'&&S.album))r=`<button class="txtbtn glass" data-act="startsel">Select</button>`+r;
   }
   const key=(S.selMode?'s':'n')+'|'+S.tab+'|'+(S.album||'');
-  if(key!==headKey){h.innerHTML=l+`<div class="ttl">${titleText()}</div>`+r;headKey=key;return}
+  if(key!==headKey){fill(h,l+`<div class="ttl">${titleText()}</div>`+r);headKey=key;return}
   const ttl=h.querySelector('.ttl'),t=titleText();
   if(ttl&&ttl.textContent!==t)ttl.textContent=t;
 }
@@ -611,11 +629,11 @@ function renderTabs(){
   $('#tabs').classList.toggle('hide',sel);
   const sb=$('#selbar'); sb.classList.toggle('hide',!sel);
   const tr=S.tab==='albums'&&S.album==='trash';
-  sb.innerHTML=tr?
+  fill(sb,tr?
    `<button data-act="restore">${I.restore}Restore</button><button data-act="purge">${I.trash}Delete</button>`:
-   `<button data-act="fav">${I.heart}Favourite</button><button data-act="share">${I.share}Share</button><button data-act="del">${I.trash}Delete</button>`;
-  const b=$$('#pill button'); b[0].innerHTML=I.lib+'Library'; b[1].innerHTML=I.alb+'Albums';
-  const sr=$('.tabs .round'); sr.innerHTML=I.sea;
+   `<button data-act="fav">${I.heart}Favourite</button><button data-act="share">${I.share}Share</button><button data-act="del">${I.trash}Delete</button>`);
+  const b=$$('#pill button'); fill(b[0],I.lib+'Library'); fill(b[1],I.alb+'Albums');
+  const sr=$('.tabs .round'); fill(sr,I.sea);
   b.forEach(x=>x.classList.toggle('act',x.dataset.tab===S.tab));
   sr.classList.toggle('act',S.tab==='search');
   const ind=$('#ind'),a=b.find(x=>x.classList.contains('act'));
@@ -999,9 +1017,9 @@ function openViewer(list,i){
   if(i<0)return;
   V={list,i,zoom:1,tx:0,ty:0,last:0,hintT:0};
   const el=document.createElement('div');el.className='viewer';
-  el.innerHTML=`<div class="vbg"></div><div class="stage"><div class="track"></div></div>
+  fill(el,`<div class="vbg"></div><div class="stage"><div class="track"></div></div>
   <div class="vtop"><button class="rbtn glass" data-v="close">${I.back}</button><div class="mid glass"><b></b><span></span></div><button class="rbtn glass" data-v="info">${I.info}</button></div>
-  <div class="vbar glass"></div><div class="hint">Swipe to browse · double-tap to zoom · swipe down to close</div>`;
+  <div class="vbar glass"></div><div class="hint">Swipe to browse · double-tap to zoom · swipe down to close</div>`);
   document.body.append(el);V.el=el;
   build();
   const stage=$('.stage',el),track=$('.track',el),bg=$('.vbg',el);
@@ -1162,9 +1180,9 @@ function build(keepTrack,dir){
   const p=pid();
   $('.mid b',el).textContent=fmtDay(p.date);$('.mid span',el).textContent=fmtTime(p.date);
   const t=TRASH.has(p.id);
-  $('.vbar',el).innerHTML=t?
+  fill($('.vbar',el),t?
     `<button data-v="restore">${I.restore}</button><button data-v="purge">${I.trash}</button>`:
-    `<button data-v="share">${I.share}</button><button class="heart ${p.fav?'on':''}" data-v="fav">${I.heart}</button><button data-v="del">${I.trash}</button>`;
+    `<button data-v="share">${I.share}</button><button class="heart ${p.fav?'on':''}" data-v="fav">${I.heart}</button><button data-v="del">${I.trash}</button>`);
   /* the hint is hidden once per viewer, and the timer is owned by V so that closing the viewer
      cancels it: before this the 3.5 s callback outlived the viewer and ran against the node
      closeViewer had already removed, and every rebuild armed another one */
