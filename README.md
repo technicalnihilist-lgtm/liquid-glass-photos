@@ -213,7 +213,7 @@ tools/make_icons.py                         launcher icon generator
 tools/gen_preview.py                        preview harness (see below)
 tools/bench_first_frame.js                  first-frame benchmark on a 2000-photo library
 tools/bench_idle_scroll.js                  idle-scroll CPU benchmark (item 80)
-tools/test_suite.js                         the puppeteer regression suite (118 checks)
+tools/test_suite.js                         the puppeteer regression suite (120 checks)
 tools/leak_probe.js                         open/close the viewer N times and report what the page still holds
 docs/screenshots/                           screenshots
 ```
@@ -221,6 +221,33 @@ docs/screenshots/                           screenshots
 ## About the screenshots
 
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
+
+### 1.5.32 — day 9 of the 20-day optimisation plan, eighty-second pass
+No UI change, no new features. Item 82 of the plan: no second `renderAll()` at boot.
+- Item 81 put the shell on screen before the library read, and the read then called `renderAll(true)`
+  — the whole page again, on top of a page that had just been drawn. The boot ran **two** full
+  renders: the shell at ~187 ms and the read's at ~274 ms. The second one could not change anything
+  in the chrome: `renderHead()` is keyed on the mode, the tab and the album, and `renderTabs()` on
+  the tab, none of which a library read touches. What it did do was rewrite the tab bar's markup,
+  the selection bar's markup and the search button's icon, then read the active button's
+  `offsetLeft`/`offsetWidth` to place the indicator — a forced synchronous layout on a screen that
+  was about to be replaced anyway.
+- Every exit from `loadLibrary()` now re-renders the screen alone, `renderScreen(keep)`, which is
+  where the new content actually lands (the loading state becomes the grid, or the permission
+  prompt, or the empty library). The success exit keeps the scroll position exactly as before; the
+  two early exits and the `catch` reset it exactly as before. `onPermission(false)` — the boot's
+  other way into the same state, when the user denies the prompt — takes the same path, so the
+  denied start is one render too. Boot now measures **1 `renderAll`, 1 `renderHead`, 4 `renderTabs`,
+  2 `renderScreen`** against 2/2/5/2: the same two screen paints, one set of chrome work.
+- `app/assets/index.html` is the only app source that changed; `MainActivity.java`,
+  `AndroidManifest.xml` and the resources are untouched, so no layout, glass, colour or animation
+  moved. `tools/test_suite.js` gains two checks (120 total, all PASS): one pins the shape on the
+  source — one `renderAll` in the init block and it ahead of the gate, no `renderAll` anywhere in
+  `loadLibrary`, its four exits all on `renderScreen` with the success exit keeping the scroll, the
+  denied branch on the same path, `renderAll` still the only caller of `renderHead`/`renderTabs` and
+  `renderScreen` calling neither; the other counts every write to the header, the tab bar, the
+  selection bar and the search button on a real page while a read that adds a photo lands, and
+  requires the grid to grow to 61 tiles with the chrome written zero times (16 writes at boot).
 
 ### 1.5.31 — day 9 of the 20-day optimisation plan, eighty-first pass
 No UI change, no new features. Item 81 of the plan: the first library load waits for the first paint.
