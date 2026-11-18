@@ -149,6 +149,44 @@ is a browser-harness number on a 2-core sandbox, not a phone measurement, so com
 pass rather than against a device. The gap between "first thumbnail decoded" and "first tile
 painted" is the cost of laying out the 2000-tile grid, which is where the next passes look first.
 
+### What an idle scroll costs
+
+A browser cannot read a battery, so `tools/bench_idle_scroll.js` measures the part the app is
+responsible for: the main-thread CPU time the renderer spends with the grid scrolled and with it
+left alone, and what scrolling adds on top. Same harness, same 2000 photos, two 60-second windows
+on the same page, back to back:
+
+| 2000 photos, 60 s window | idle | scrolling |
+| --- | --- | --- |
+| main-thread task | 48.6 s | 53.5 s |
+| of which script | 0.18 s | 9.26 s |
+| of which style recalc | 27.4 s | 24.7 s |
+| animation frames | 552 | 785 |
+| thumbnails fetched | 0 | 42 |
+| timers armed by the page | 0 | 0 |
+
+```bash
+node tools/bench_idle_scroll.js --count=2000 --seconds=60
+node tools/bench_idle_scroll.js --count=2000 --seconds=60 --mode=nopre   # the same scroll with the prefetch off
+```
+
+Scrolling adds **151 ms of script and 80 ms of main-thread time per scrolled second** over sitting
+still. All of that script is the thumbnail prefetch: run the same scroll with `--mode=nopre` and it
+falls to **0.8 ms/s**, so the probe — four `elementFromPoint` hit tests and up to twelve `Image`
+constructions per frame — is the entire scroll cost, and the grid itself, the decode and the paint
+add only the ~42 ms/s that remains. Nothing in the scroll path arms a timer; the page's only three
+intervals are the 4D drift tick and the two edge auto-scrolls of a drag, none of them reachable
+from a scroll event.
+
+Ten minutes of idle scrolling, projected from those rates, is **534 s of main-thread time — 89% of
+the ten minutes — and about 38.5 mAh** on a 4500 mAh pack at 3.85 V if a busy core draws 1 W, i.e.
+**0.86% of the battery**, of which the app's own JavaScript is ~91 s. The other 443 s is style
+recalc and paint, and that is the caveat: this harness rasterises in software, so the blurred
+wallpaper and the backdrop-filter chrome cost far more here than they do on a phone, where the GPU
+composites them. The screen, which dominates a real phone's draw while the grid is on display, is
+not in this number at all and is the same for every pass. Read the table as a comparison between
+passes and the scroll-minus-idle delta as the app's own share, not as a battery reading.
+
 ## Build it yourself
 
 Requirements: JDK 17, Android SDK platform 34 + build-tools 34.0.0.
@@ -174,7 +212,8 @@ build.sh                                    full APK pipeline without Gradle
 tools/make_icons.py                         launcher icon generator
 tools/gen_preview.py                        preview harness (see below)
 tools/bench_first_frame.js                  first-frame benchmark on a 2000-photo library
-tools/test_suite.js                         the puppeteer regression suite (114 checks)
+tools/bench_idle_scroll.js                  idle-scroll CPU benchmark (item 80)
+tools/test_suite.js                         the puppeteer regression suite (116 checks)
 tools/leak_probe.js                         open/close the viewer N times and report what the page still holds
 docs/screenshots/                           screenshots
 ```
@@ -182,6 +221,38 @@ docs/screenshots/                           screenshots
 ## About the screenshots
 
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
+
+### 1.5.30 — day 8 of the 20-day optimisation plan, sixty-second pass
+No UI change, no new features. Item 80 of the plan: measure the battery impact of ten minutes of
+idle scroll.
+- Measured, in the only way a headless browser can measure it: the renderer's own CPU accounting
+  across two 60-second windows on the same 2000-photo page, one scrolled and one left alone.
+  Scrolling adds 151 ms of script and 80 ms of main-thread time per scrolled second over sitting
+  still, and ten minutes of it projects to 534 s of main-thread time (89% of the wall) and about
+  38.5 mAh — 0.86% of a 4500 mAh pack at the stated 1 W model. The numbers and their caveats are in
+  the Performance section above.
+- The useful part is where the cost sits. Every millisecond of that scroll script is the thumbnail
+  prefetch: the same scroll with `--mode=nopre` costs 0.8 ms/s instead of 151, so the four
+  `elementFromPoint` hit tests and up to twelve `Image` constructions per frame are the whole of
+  the scroll path, and the tile decode and paint that remain add ~42 ms/s. The scroll path also
+  arms no timer at any point — the page's three intervals are the 4D drift tick and the two edge
+  auto-scrolls of a drag, and none of them is reachable from a scroll event.
+- The 443 s of the ten minutes that is not JavaScript is style recalc and paint of the blurred
+  wallpaper and the backdrop-filter chrome, which this harness rasterises in software and a phone
+  composites on the GPU. That is why the absolute mAh figure is an order of magnitude for the app's
+  own CPU and not a battery reading, and why the screen — the largest draw on a real phone and
+  identical in every pass — is deliberately left out of it.
+- `tools/bench_idle_scroll.js` is new: `--count`, `--seconds`, `--mode=full|noblobs|nopre` and
+  `--json`, reading `TaskDuration`, `ScriptDuration`, `LayoutDuration` and `RecalcStyleDuration`
+  from CDP `Performance.getMetrics` either side of each window, with the server counting the
+  thumbnails fetched and the page counting its own timers and frames. `tools/test_suite.js` gains
+  two checks (116 total, all PASS): one pins the scroll path on the source — a single passive
+  listener, one animation frame, the `y===preY` bail-out, `PRE_MAX` 12, the `preWarmed` dedupe, and
+  exactly three intervals in the whole page, none of them in that listener; the other scrolls a
+  600-photo page for 2.5 s with timers, frames, `elementFromPoint` and `Image` counted, and
+  requires zero timers armed, one hit-test burst per frame at most, and no more than twelve images
+  per burst. No app source changed for this item — `app/assets/index.html` and `MainActivity.java`
+  are byte-identical to 1.5.29, and the APK differs only in version code and name.
 
 ### 1.5.29 — day 8 of the 20-day optimisation plan, sixty-first pass
 No UI change, no new features. Item 79 of the plan: verify no wakelocks are held.
