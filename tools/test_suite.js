@@ -2668,6 +2668,102 @@ function check(name, ok, detail) {
     wl.reads === 0 && wl.calls.length === 0 && wlErrors.length === 0,
     wl.reads + ' reads, ' + wl.calls.length + ' calls');
 
+  /* 115. (80) Idle scrolling stays a probe, not a loop. The grid's scroll path
+          is one passive listener that arms one animation frame, and the probe
+          behind it bails out the moment the grid has not moved and asks for at
+          most PRE_MAX thumbnails. Pinned on the source so a timer or a second
+          listener cannot arrive in the scroll path unnoticed: the app owns
+          exactly two intervals (the 4D drift tick and the edge auto-scroll of a
+          drag) and neither of them is reachable from a scroll event. */
+  const idleSrc = fs.readFileSync(APP, 'utf8');
+  const scrollReg = idleSrc.match(/#screen'\)\.addEventListener\('scroll'[^\n]*/g) || [];
+  const intervals = idleSrc.match(/setInterval\(/g) || [];
+  const preMax = (idleSrc.match(/const PRE_MAX=(\d+)/) || [])[1];
+  check(
+    'the scroll path arms one frame and one probe, never a timer',
+    scrollReg.length === 1 &&
+      /,{passive:true}\);/.test(scrollReg[0]) &&
+      /if\(!preRaf\)preRaf=requestAnimationFrame\(prefetchNext\)/.test(scrollReg[0]) &&
+      !/setTimeout|setInterval/.test(scrollReg[0]) &&
+      intervals.length === 3 &&
+      /driftTimer=setInterval\(paintTilt,60\)/.test(idleSrc) &&
+      (idleSrc.match(/autoScroll=setInterval\(\(\)=>autoStep/g) || []).length === 2 &&
+      /if\(y===preY\)return;/.test(idleSrc) &&
+      preMax === '12' &&
+      /sent<PRE_MAX/.test(idleSrc) &&
+      /preWarmed\.has\(id\)\)continue;/.test(idleSrc),
+    scrollReg.length + ' scroll listener, ' + intervals.length + ' intervals, PRE_MAX ' + preMax
+  );
+
+  /* 116. (80) And a real scroll does exactly that. A page with 600 photos is
+          scrolled for a couple of seconds with the app's own timers, its
+          animation-frame callbacks, elementFromPoint and Image constructions
+          counted: no timer is armed by the scroll, the probes never outnumber
+          the frames, each probe hit-tests the four probe heights once, and no
+          probe asks for more than PRE_MAX thumbnails. */
+  const SCROLL_PROBE =
+    '<script>(function(){' +
+    'window.__sc={timers:0,intervals:0,frames:0,probes:0,imgs:0,scrolls:0};' +
+    'const st=window.setTimeout,si=window.setInterval,raf=window.requestAnimationFrame;' +
+    'window.setTimeout=function(){window.__sc.timers++;return st.apply(this,arguments)};' +
+    'window.setInterval=function(){window.__sc.intervals++;return si.apply(this,arguments)};' +
+    'window.requestAnimationFrame=function(f){return raf.call(window,function(t){window.__sc.frames++;return f.call(this,t)})};' +
+    'const efp=document.elementFromPoint?document.elementFromPoint.bind(document):null;' +
+    'document.elementFromPoint=function(x,y){window.__sc.probes++;return efp(x,y)};' +
+    'const Img=window.Image;' +
+    'window.Image=function(){window.__sc.imgs++;return new Img()};' +
+    'window.addEventListener("DOMContentLoaded",function(){' +
+    'document.querySelector("#screen").addEventListener("scroll",function(){window.__sc.scrolls++},{passive:true})});' +
+    '})();</script>';
+  currentStub = stubFor(library(600), 'true') + SCROLL_PROBE;
+  const scPage = await browser.newPage();
+  const scErrors = [];
+  scPage.on('pageerror', (e) => scErrors.push(String(e && e.message)));
+  await scPage.goto(base, { waitUntil: 'load' });
+  await scPage.waitForFunction(() => document.querySelectorAll('.tile').length === 600, { timeout: 30000 });
+  await scPage.evaluate(
+    () =>
+      new Promise((done) => {
+        const el = document.querySelector('#screen');
+        const start = performance.now();
+        const zero = { timers: window.__sc.timers, intervals: window.__sc.intervals, probes: window.__sc.probes, frames: window.__sc.frames, imgs: window.__sc.imgs };
+        window.__sc.zero = zero;
+        const step = () => {
+          el.scrollTop = el.scrollTop + 8;
+          if (performance.now() - start < 2500) requestAnimationFrame(step);
+          else done();
+        };
+        requestAnimationFrame(step);
+      })
+  );
+  await settle(200);
+  const sc = await scPage.evaluate(() => {
+    const z = window.__sc.zero;
+    return {
+      timers: window.__sc.timers - z.timers,
+      intervals: window.__sc.intervals - z.intervals,
+      probes: window.__sc.probes - z.probes,
+      frames: window.__sc.frames - z.frames,
+      imgs: window.__sc.imgs - z.imgs,
+      scrolls: window.__sc.scrolls,
+      moved: document.querySelector('#screen').scrollTop,
+    };
+  });
+  await scPage.close();
+  const probeBursts = sc.probes / 4;
+  check(
+    'idle scrolling arms no timer and never outruns its frame',
+    scErrors.length === 0 &&
+      sc.moved > 0 &&
+      sc.timers === 0 &&
+      sc.intervals === 0 &&
+      sc.probes > 0 &&
+      sc.probes % 4 === 0 &&
+      probeBursts <= sc.frames &&
+      sc.imgs <= 12 * probeBursts,
+    sc.scrolls + ' scroll events, ' + probeBursts + ' probes in ' + sc.frames + ' frames, ' + sc.imgs + ' images, ' + sc.timers + '/' + sc.intervals + ' timers'
+  );
+
   await browser.close();
   server.close();
 
