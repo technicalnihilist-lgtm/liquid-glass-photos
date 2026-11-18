@@ -2919,6 +2919,60 @@ function check(name, ok, detail) {
     read.chromeAtBoot + ' chrome writes at boot, ' + read.chrome + ' on the read, ' + read.tiles + ' tiles, header "' + read.head + '"'
   );
 
+  /* 83. The icon markup is constant, so it is parsed once and cloned after that. Two checks in
+     one: the source keeps every chrome write on fill() — the header, the selection bar, the tab
+     pill and the search round are no longer written through innerHTML in a render — and a real
+     page renders the chrome four times, each render byte-identical to the last with the same six
+     icons, from nodes that are copies and not one shared subtree. */
+  const renderTabsFn = (bootSrc.match(/function renderTabs\(\)\{[\s\S]*?\n\}/) || [''])[0];
+  const renderHeadFn = (bootSrc.match(/function renderHead\(\)\{[\s\S]*?\n\}/) || [''])[0];
+  const srcShape =
+    /const TPL=new Map\(\);/.test(bootSrc) &&
+    /function fill\(el,html\)\{/.test(bootSrc) &&
+    renderTabsFn &&
+    !/\.innerHTML\s*=/.test(renderTabsFn) &&
+    /fill\(sb,/.test(renderTabsFn) &&
+    /fill\(b\[0\],/.test(renderTabsFn) &&
+    /fill\(b\[1\],/.test(renderTabsFn) &&
+    /fill\(sr,/.test(renderTabsFn) &&
+    renderHeadFn &&
+    !/h\.innerHTML\s*=/.test(renderHeadFn) &&
+    /fill\(h,/.test(renderHeadFn) &&
+    /fill\(\$\('\.vbar',el\),/.test(bootSrc);
+  currentStub = stubFor(library(COUNT), 'true');
+  const iconPage = await browser.newPage();
+  const iconErrors = [];
+  iconPage.on('pageerror', (e) => iconErrors.push(String(e && e.message)));
+  await iconPage.goto(base, { waitUntil: 'load' });
+  await iconPage.waitForFunction(() => typeof window.renderTabs === 'function', { timeout: 20000 });
+  const icons = await iconPage.evaluate(() => {
+    S.tab = 'library';
+    S.album = null;
+    S.selMode = true;
+    window.renderTabs();
+    const snap = () =>
+      document.querySelector('#selbar').outerHTML +
+      document.querySelector('#pill').outerHTML +
+      document.querySelector('.tabs .round').outerHTML;
+    const first = snap();
+    const shapes = [];
+    for (let i = 0; i < 3; i++) {
+      window.renderTabs();
+      shapes.push(snap() === first);
+    }
+    const svgs = document.querySelectorAll('#selbar svg, #pill svg, .tabs .round svg');
+    const distinct = svgs.length > 1 && svgs[0] !== svgs[1] && svgs[0].parentElement !== svgs[1].parentElement;
+    const live = svgs[0].isConnected && svgs[1].isConnected;
+    return { same: shapes.every(Boolean), n: svgs.length, distinct, live, len: first.length };
+  });
+  await iconPage.close();
+  check(
+    'the chrome is rebuilt from precompiled icons, not re-parsed on every render',
+    srcShape && iconErrors.length === 0 && icons.same && icons.n === 6 && icons.distinct && icons.live,
+    (srcShape ? 'source on fill()' : 'source still writes innerHTML') + ', ' +
+      icons.n + ' icons, 3 re-renders identical: ' + icons.same + ', ' + icons.len + ' chars of chrome'
+  );
+
   await browser.close();
   server.close();
 
