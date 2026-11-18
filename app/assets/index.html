@@ -1247,10 +1247,25 @@ window.__native.insets(META.insetTop,META.insetBottom);
 bootAnim();
 LOADED=false;
 renderAll();
-setTimeout(()=>{
+/* 81. Everything above is the first frame: the shell, its header and the present animation,
+   all rendered before anything is read from the device. The library load must not land on top
+   of that frame, and a fixed 60 ms timer could: on a cold start the timer can fire while the
+   first frame is still waiting for a raster. So the load waits for the second animation frame
+   instead — the first frame callback runs before the present, the second after it — and if the
+   page is not visible yet, for the visibility it needs to paint at all. */
+function afterFirstPaint(fn){
+  const frame=()=>requestAnimationFrame(()=>requestAnimationFrame(fn));
+  if(document.visibilityState!=='hidden'){frame();return}
+  document.addEventListener('visibilitychange',function vis(){
+    if(document.visibilityState==='hidden')return;
+    document.removeEventListener('visibilitychange',vis);
+    frame();
+  });
+}
+afterFirstPaint(()=>{
   if(N&&!HAS_ACCESS&&N.requestAccess){try{N.requestAccess()}catch(e){}}
   loadLibrary();
-},60);
+});
 addEventListener('resize',renderTabs);
 document.fonts&&document.fonts.ready.then(renderTabs);
 setTimeout(renderTabs,60);
