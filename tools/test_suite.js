@@ -1056,6 +1056,13 @@ function check(name, ok, detail) {
   const empty = await browser.newPage();
   await empty.goto(base, { waitUntil: 'load' });
   await empty.waitForSelector('#screen .empty', { timeout: 15000 });
+  /* The shell paints its "Loading your library…" state first and the read replaces it — that
+     order is the point of item 81, so the check has to wait for the state after the read, not
+     for the first .empty it can see. */
+  await empty.waitForFunction(() => {
+    const e = document.querySelector('#screen .empty');
+    return !!e && !/loading your library/i.test(e.textContent);
+  }, { timeout: 15000 });
   const emptyText = await empty.$eval('#screen .empty', (e) => e.textContent);
   check('empty library state renders', /no photos/i.test(emptyText), emptyText.split('.')[0].slice(0, 40));
   await empty.close();
@@ -2762,6 +2769,78 @@ function check(name, ok, detail) {
       probeBursts <= sc.frames &&
       sc.imgs <= 12 * probeBursts,
     sc.scrolls + ' scroll events, ' + probeBursts + ' probes in ' + sc.frames + ' frames, ' + sc.imgs + ' images, ' + sc.timers + '/' + sc.intervals + ' timers'
+  );
+
+  /* 81. The first library read waits for the shell to be on screen instead of for a boot timer.
+     Two checks: the source pins the order — the shell is rendered synchronously, the read is
+     gated on two animation frames (the second of which runs after the present) with a visibility
+     fallback for a page that cannot paint yet, and no setTimeout reaches the read; then a real
+     page, with the stub recording what the document looked like at the instant photos() was
+     called, proves the read lands in a later frame than the shell render and finds an empty grid. */
+  const bootSrc = fs.readFileSync(APP, 'utf8');
+  const initBlock = (bootSrc.match(/\/\* ---------- init ---------- \*\/([\s\S]*?)<\/script>/) || ['', ''])[1];
+  const gateFn = (bootSrc.match(/function afterFirstPaint\(fn\)\{[\s\S]*?\n\}/) || [''])[0];
+  const gateCall = (initBlock.match(/afterFirstPaint\(\(\)=>\{[\s\S]*?\}\);/) || [''])[0];
+  const shellFirst = initBlock.indexOf('renderAll();') > -1 && initBlock.indexOf('renderAll();') < initBlock.indexOf('afterFirstPaint(');
+  check(
+    'the first library read is gated on the first paint, not on a boot timer',
+    shellFirst &&
+      /afterFirstPaint\(\(\)=>\{/.test(initBlock) &&
+      /requestAccess/.test(gateCall) &&
+      /loadLibrary\(\)/.test(gateCall) &&
+      !/setTimeout\([^)]*loadLibrary/.test(initBlock) &&
+      !/setTimeout\([\s\S]{0,160}loadLibrary/.test(initBlock.slice(initBlock.indexOf('afterFirstPaint('))) &&
+      (gateFn.match(/requestAnimationFrame/g) || []).length === 2 &&
+      /visibilityState!=='hidden'/.test(gateFn) &&
+      /addEventListener\('visibilitychange'/.test(gateFn),
+    'shell render before the gate, gate = ' + (gateFn.match(/requestAnimationFrame/g) || []).length + ' frames + visibility fallback, no timer on the read'
+  );
+
+  const BOOT_PROBE =
+    '<script>(function(){' +
+    'window.__boot={frames:0,ts:[],photosAt:null,framesAtRead:0,at:null};' +
+    'const raf=window.requestAnimationFrame.bind(window);' +
+    'window.requestAnimationFrame=function(f){return raf(function(t){window.__boot.frames++;window.__boot.ts.push(t);return f.call(this,t)})};' +
+    '})();</script>';
+  currentStub = stubFor(library(COUNT), 'true').replace(
+    'photos(){return ',
+    'photos(){var b=window.__boot;if(b.photosAt==null){b.photosAt=performance.now();b.framesAtRead=b.frames;' +
+      'var h=document.querySelector("#head .ttl");b.at={head:h?h.offsetHeight:0,' +
+      'boot:document.querySelector("#app").classList.contains("boot"),' +
+      'screen:!!document.querySelector("#screen"),tiles:document.querySelectorAll(".tile").length,' +
+      'ready:document.readyState}}return '
+  ) + BOOT_PROBE;
+  const bootPage = await browser.newPage();
+  const bootErrors = [];
+  bootPage.on('pageerror', (e) => bootErrors.push(String(e && e.message)));
+  await bootPage.goto(base, { waitUntil: 'load' });
+  await bootPage.waitForFunction(() => window.__boot && window.__boot.photosAt != null, { timeout: 30000 });
+  const boot = await bootPage.evaluate(() => ({
+    photosAt: window.__boot.photosAt,
+    framesAtRead: window.__boot.framesAtRead,
+    ts: window.__boot.ts.slice(0, 6),
+    at: window.__boot.at,
+  }));
+  await bootPage.waitForFunction((n) => document.querySelectorAll('.tile').length === n, { timeout: 30000 }, COUNT);
+  const bootTiles = await bootPage.$$eval('.tile', (n) => n.length);
+  await bootPage.close();
+  const lastFrameBeforeRead = boot.ts[boot.framesAtRead - 1];
+  check(
+    'the shell is on screen before the first library read, two frames in',
+    bootErrors.length === 0 &&
+      !!boot.at &&
+      boot.at.head > 0 &&
+      boot.at.boot === true &&
+      boot.at.screen === true &&
+      boot.at.tiles === 0 &&
+      boot.at.ready === 'complete' &&
+      boot.framesAtRead >= 2 &&
+      boot.framesAtRead <= 4 &&
+      boot.photosAt >= lastFrameBeforeRead &&
+      bootTiles === COUNT,
+    'read at ' + (boot.photosAt || 0).toFixed(1) + ' ms on frame ' + boot.framesAtRead +
+      ' (that frame at ' + (lastFrameBeforeRead || 0).toFixed(1) + ' ms), header ' +
+      (boot.at ? boot.at.head : '?') + ' px, ' + (boot.at ? boot.at.tiles : '?') + ' tiles at read, ' + bootTiles + ' after'
   );
 
   await browser.close();
