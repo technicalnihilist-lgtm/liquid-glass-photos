@@ -714,7 +714,32 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
   laid out, the present animation running and an empty grid, then all 60 tiles after it. The
   empty-library check now waits for the state after the read rather than the first `.empty` it can
   see, which is the loading state the shell paints.
-- [ ] 82. Avoid the double `renderAll()` at boot.
+- [x] 82. Avoid the double `renderAll()` at boot. *(1.5.32)*
+  Item 81 put the shell on screen before the read, and the read then called `renderAll(true)` — the
+  whole page again, over a page that had just been drawn: the boot ran two full renders, the shell
+  at ~187 ms and the read's at ~274 ms. The second could not change anything in the chrome.
+  `renderHead()` is keyed on the mode, the tab and the album, and `renderTabs()` on the tab, and a
+  library read touches none of them; what it did do was rewrite the tab bar's markup, the selection
+  bar's markup and the search button's icon, and then read the active button's
+  `offsetLeft`/`offsetWidth` to place the indicator — a forced synchronous layout, on the frame the
+  grid was about to replace. Every exit from `loadLibrary()` now re-renders the screen alone:
+  `renderScreen(keep)`, which is where the new content actually lands (loading state to grid, to the
+  permission prompt, or to the empty library). The success exit keeps the scroll position and the
+  two early exits and the `catch` reset it, exactly as `renderAll(true)`/`renderAll()` did, so the
+  pixels are identical — the same two screen paints, one set of chrome work. `onPermission(false)`,
+  the boot's other way into the denied state, takes the same path, so a denied start is one render
+  too. Measured on the suite's 60-photo page, the boot now does 1 `renderAll`, 1 `renderHead`,
+  4 `renderTabs` and 2 `renderScreen` against 2/2/5/2 before. `app/assets/index.html` is the only
+  app source that changed; `MainActivity.java`, `AndroidManifest.xml` and the resources are
+  byte-identical to 1.5.31, and the APK differs only in version code and name.
+  `tools/test_suite.js` gains two checks (120 total, all PASS): one pins the shape on the source —
+  exactly one `renderAll` in the init block and it ahead of the `afterFirstPaint` gate, no
+  `renderAll` anywhere inside `loadLibrary`, its four exits all on `renderScreen` with the success
+  exit keeping the scroll, the denied branch on the same path, `renderAll` still the only caller of
+  `renderHead`/`renderTabs`, and `renderScreen` calling neither; the other counts every write to the
+  header, the tab bar, the selection bar and the search button on a real page while a read that adds
+  a photo lands — the grid has to grow to 61 tiles and the chrome has to be written zero times
+  (16 writes during the boot).
 - [ ] 83. Precompile the icon strings once instead of on every render.
 - [ ] 84. Cut the number of `setTimeout` calls in the boot path.
 - [ ] 85. Show the cached library immediately on a warm start.
