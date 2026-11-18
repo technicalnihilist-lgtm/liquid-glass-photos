@@ -2843,6 +2843,82 @@ function check(name, ok, detail) {
       (boot.at ? boot.at.head : '?') + ' px, ' + (boot.at ? boot.at.tiles : '?') + ' tiles at read, ' + bootTiles + ' after'
   );
 
+  /* 82. A library read re-renders the screen and nothing else, so the boot no longer runs a second
+     full renderAll() over the shell render of 81. Two checks: the source pins the shape — one
+     renderAll in the init block, none at all inside loadLibrary, whose four exits all go through
+     renderScreen with the success exit keeping the scroll, the permission-denied branch on the
+     same path, and renderAll still the only caller of renderHead/renderTabs; then a real page
+     counts every write to the header, the tab bar and the search button while a read that adds a
+     photo lands, and requires the grid to grow and the chrome to be written zero times. */
+  const loadFn = (bootSrc.match(/function loadLibrary\(\)\{[\s\S]*?\n\}/) || [''])[0];
+  const permDeny = (bootSrc.match(/onPermission\(ok\)\{[\s\S]*?\n  \},/) || [''])[0];
+  const renderAllFn = (bootSrc.match(/function renderAll\(keep=false\)\{[^}]*\}/) || [''])[0];
+  const renderScreenFn = (bootSrc.match(/function renderScreen\(keepScroll=true\)\{[\s\S]*?\n\}/) || [''])[0];
+  const bootRenders = (initBlock.match(/renderAll\(/g) || []).length;
+  check(
+    'the boot renders the shell once and a library read only re-renders the screen',
+    bootRenders === 1 &&
+      initBlock.indexOf('renderAll();') < initBlock.indexOf('afterFirstPaint(') &&
+      !/renderAll/.test(loadFn) &&
+      (loadFn.match(/renderScreen\(/g) || []).length === 4 &&
+      /renderScreen\(true\);/.test(loadFn) &&
+      !/renderAll/.test(permDeny) &&
+      /renderScreen\(true\)/.test(permDeny) &&
+      /^function renderAll\(keep=false\)\{renderHead\(\);renderTabs\(\);renderScreen\(keep\)\}$/.test(renderAllFn) &&
+      !/renderTabs\(|renderHead\(/.test(renderScreenFn),
+    bootRenders + ' renderAll at boot, ' + (loadFn.match(/renderScreen\(/g) || []).length + ' renderScreen exits in the read, renderAll = head+tabs+screen'
+  );
+
+  const CHROME_PROBE =
+    '<script>(function(){' +
+    'window.__rw={chrome:0};' +
+    'const d=Object.getOwnPropertyDescriptor(Element.prototype,"innerHTML");' +
+    'Object.defineProperty(Element.prototype,"innerHTML",{configurable:true,get:d.get,set:function(v){' +
+    'try{const p=this.parentElement;' +
+    'if(this.id==="selbar"||this.id==="tabs"||(p&&(p.id==="pill"||p.className==="tabs"))||String(this.className||"").indexOf("round")>-1)window.__rw.chrome++;' +
+    '}catch(e){}return d.set.call(this,v)}});' +
+    '})();</script>';
+  currentStub =
+    stubFor(library(COUNT), 'true').replace(
+      'photos(){return ',
+      'photos(){if(window.__addOne){window.__addOne=false;ITEMS.push(Object.assign({},ITEMS[0],{id:9999,n:"IMG_9999.jpg",d:ITEMS[0].d+1}))}return '
+    ) + CHROME_PROBE;
+  const readPage = await browser.newPage();
+  const readErrors = [];
+  readPage.on('pageerror', (e) => readErrors.push(String(e && e.message)));
+  await readPage.goto(base, { waitUntil: 'load' });
+  await readPage.waitForFunction((n) => document.querySelectorAll('.tile').length === n, { timeout: 30000 }, COUNT);
+  const read = await readPage.evaluate(async () => {
+    const chromeAtBoot = window.__rw.chrome;
+    const headBefore = document.querySelector('#head .ttl').textContent;
+    const tabsBefore = document.querySelectorAll('#pill button').length;
+    window.__rw.chrome = 0;
+    window.__addOne = true;
+    loadLibrary();
+    await new Promise((r) => requestAnimationFrame(r));
+    await new Promise((r) => requestAnimationFrame(r));
+    return {
+      chromeAtBoot,
+      chrome: window.__rw.chrome,
+      tiles: document.querySelectorAll('.tile').length,
+      head: document.querySelector('#head .ttl').textContent,
+      tabs: document.querySelectorAll('#pill button').length,
+      headBefore,
+      tabsBefore,
+    };
+  });
+  await readPage.close();
+  check(
+    'a library read grows the grid without touching the header or the tab bar',
+    readErrors.length === 0 &&
+      read.chromeAtBoot > 0 &&
+      read.chrome === 0 &&
+      read.tiles === COUNT + 1 &&
+      read.head === read.headBefore &&
+      read.tabs === read.tabsBefore,
+    read.chromeAtBoot + ' chrome writes at boot, ' + read.chrome + ' on the read, ' + read.tiles + ' tiles, header "' + read.head + '"'
+  );
+
   await browser.close();
   server.close();
 
