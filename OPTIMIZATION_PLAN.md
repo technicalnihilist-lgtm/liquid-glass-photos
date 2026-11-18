@@ -693,7 +693,27 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
 
 ## Day 9 — startup
 
-- [ ] 81. Defer the first library load until after the first paint (present) — verify the order.
+- [x] 81. Defer the first library load until after the first paint (present) — verify the order. *(1.5.31)*
+  The boot did the right things in the wrong order: `renderAll()` drew the shell and then a
+  `setTimeout(…,60)` asked for the permission and read the library. Sixty milliseconds is a guess,
+  not a paint — on a cold start the timer can fire while the first frame is still waiting for a
+  raster, so the MediaStore query and the grid build land on top of the frame that was meant to be
+  on screen first. The read now waits for the second animation frame (the first frame callback runs
+  before the present, the second after it) and, if the page is not visible yet, for the visibility
+  it needs to paint at all, so a hidden page cannot swallow the load. `requestAccess()` still goes
+  out ahead of the read, in the same callback, and the shell paints the same loading state as
+  before — it is simply on screen before anything is read instead of being raced by a timer.
+  Measured with `tools/bench_first_frame.js` at 2000 photos, the shell still paints at 214 ms
+  against 209 ms before (run-to-run noise) and the read now lands on frame 2 (986–1416 ms on the
+  suite's 60-photo page); the loading state is visible for two frames instead of 60 ms.
+  `tools/test_suite.js` gains two checks (118 total, all PASS): one pins the order on the source —
+  the shell render ahead of the gate, the gate built from two animation frames with the visibility
+  fallback, `requestAccess()` and `loadLibrary()` inside it, and no `setTimeout` on the read — and
+  one drives a real page whose stub records the document at the instant `photos()` is called,
+  requiring the read to land in a later frame than the shell render, on frame two, with the header
+  laid out, the present animation running and an empty grid, then all 60 tiles after it. The
+  empty-library check now waits for the state after the read rather than the first `.empty` it can
+  see, which is the loading state the shell paints.
 - [ ] 82. Avoid the double `renderAll()` at boot.
 - [ ] 83. Precompile the icon strings once instead of on every render.
 - [ ] 84. Cut the number of `setTimeout` calls in the boot path.
