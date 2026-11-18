@@ -661,7 +661,35 @@ Legend: `[ ]` todo, `[x]` done (with the version it shipped in).
   and name. The idle-window check added by 78 also starts its host clock before the tap now rather
   than after the evaluate returns — a slow round trip could eat part of the 2000 ms window and
   make a correct suspend look early, which is a harness timing bug, not a page one.
-- [ ] 80. Measure battery impact over 10 minutes of idle scroll.
+- [x] 80. Measure battery impact over 10 minutes of idle scroll. *(1.5.30)*
+  Measured, as far as a headless browser can: the renderer's own CPU accounting across two
+  60-second windows on the same 2000-photo page, one scrolled and one left alone. Scrolling adds
+  151 ms of script and 80 ms of main-thread time per scrolled second over sitting still, and ten
+  minutes of it projects to 534 s of main-thread time (89% of the wall) and about 38.5 mAh — 0.86%
+  of a 4500 mAh pack at 3.85 V with a busy core at 1 W — of which the app's own JavaScript is
+  ~91 s. The other 443 s is style recalc and paint of the blurred wallpaper and the
+  backdrop-filter chrome, which this harness rasterises in software and a phone composites on the
+  GPU; that is why the mAh figure is an order of magnitude for the app's CPU rather than a battery
+  reading, and why the screen, the largest draw on a real phone and identical in every pass, is
+  left out of it. The useful part is the split: every millisecond of that scroll script is the
+  thumbnail prefetch. The same scroll with `--mode=nopre` costs 0.8 ms/s instead of 151, so the
+  four `elementFromPoint` hit tests and up to twelve `Image` constructions per frame are the whole
+  of the scroll path, and the decode and paint that remain add ~42 ms/s. The scroll path arms no
+  timer at any point: the page's three intervals are the 4D drift tick and the two edge
+  auto-scrolls of a drag, none reachable from a scroll event.
+  `tools/bench_idle_scroll.js` is new — `--count`, `--seconds`, `--mode=full|noblobs|nopre`,
+  `--json` — reading `TaskDuration`, `ScriptDuration`, `LayoutDuration` and `RecalcStyleDuration`
+  from CDP `Performance.getMetrics` either side of each window, with the server counting the
+  thumbnails fetched and the page counting its own timers and frames; `--mode=noblobs` pauses the
+  wallpaper animation as a control and changed nothing, which is how the cost was traced to the
+  scroll path and the software rasteriser rather than to the blobs. `tools/test_suite.js` gains two
+  checks (116 total, all PASS): one pins the scroll path on the source — a single passive listener,
+  one animation frame, the `y===preY` bail-out, `PRE_MAX` 12, the `preWarmed` dedupe, and exactly
+  three intervals in the whole page, none of them in that listener; the other scrolls a 600-photo
+  page for 2.5 s with timers, frames, `elementFromPoint` and `Image` counted, and requires zero
+  timers armed, one hit-test burst per frame at most, and no more than twelve images per burst. No
+  app source changed: `app/assets/index.html` and `MainActivity.java` are byte-identical to 1.5.29,
+  and the APK differs only in version code and name.
 
 ## Day 9 — startup
 
