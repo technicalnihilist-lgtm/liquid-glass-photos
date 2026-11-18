@@ -389,11 +389,16 @@ const isCam=p=>/camera|dcim/i.test(p.bucket||'');
 const isShot=p=>/screenshot|screen.?shot/i.test((p.bucket||'')+' '+(p.name||''));
 const byId=id=>P.find(p=>p.id===id);
 
+/* 82. A library read changes the screen and nothing else: the header is keyed on the mode, the
+   tab and the album, and the tab bar on the tab, so neither can differ because a read landed.
+   Every exit below therefore re-renders the screen alone — the boot used to run a second full
+   renderAll() over the shell render of 81, rewriting the tab bar's markup and re-reading the
+   active button's offsetLeft/offsetWidth (a forced layout) to arrive at the same pixels. */
 function loadLibrary(){
-  if(!N){ LOADED=true; renderAll(); return; }
+  if(!N){ LOADED=true; renderScreen(false); return; }
   try{
     HAS_ACCESS = N.access();
-    if(!HAS_ACCESS){ LOADED=true; renderAll(); return; }
+    if(!HAS_ACCESS){ LOADED=true; renderScreen(false); return; }
     const data=JSON.parse(N.photos());
     let favs=[]; try{favs=JSON.parse(N.favs()).map(String)}catch(e){}
     const fs=new Set(favs);
@@ -403,8 +408,8 @@ function loadLibrary(){
       P.push({id:o.id,kind:'image',name:o.n,bucket:o.b,date:o.d,size:o.s,w:o.w,h:o.h,fav:fs.has(String(o.id))});
     });
     LOADED=true;
-    renderAll(true);
-  }catch(e){ LOADED=true; renderAll(); }
+    renderScreen(true);
+  }catch(e){ LOADED=true; renderScreen(false); }
 }
 
 /* ---------- albums ---------- */
@@ -1194,7 +1199,7 @@ window.__native={
   onPermission(ok){
     HAS_ACCESS=!!ok;
     if(ok){loadLibrary()}
-    else{LOADED=true;renderAll(true);toast('Permission denied — tap Allow access')}
+    else{LOADED=true;renderScreen(true);toast('Permission denied — tap Allow access')}
   },
   onPicked(n){
     if(n>0){toast(n+' item'+(n>1?'s':'')+' added');setTimeout(loadLibrary,900)}
