@@ -213,7 +213,7 @@ tools/make_icons.py                         launcher icon generator
 tools/gen_preview.py                        preview harness (see below)
 tools/bench_first_frame.js                  first-frame benchmark on a 2000-photo library
 tools/bench_idle_scroll.js                  idle-scroll CPU benchmark (item 80)
-tools/test_suite.js                         the puppeteer regression suite (120 checks)
+tools/test_suite.js                         the puppeteer regression suite (121 checks)
 tools/leak_probe.js                         open/close the viewer N times and report what the page still holds
 docs/screenshots/                           screenshots
 ```
@@ -221,6 +221,35 @@ docs/screenshots/                           screenshots
 ## About the screenshots
 
 The APK ships with **no** sample media — it is empty until it reads your gallery. The screenshots above were rendered from the same `app/assets/index.html` through `tools/gen_preview.py`, a browser harness that stubs the native bridge with 44 generated sample images. That is the only place sample images exist; they are not in the APK.
+
+### 1.5.33 — day 9 of the 20-day optimisation plan, eighty-third pass
+No UI change, no new features. Item 83 of the plan: the icon strings are compiled once, not on every render.
+- The `I` map holds the app's icon markup as constant SVG source, but every write of it went
+  through `innerHTML`, so the HTML parser rebuilt each `<svg>` from source on **every** render.
+  `renderTabs()` alone re-parsed six icons per call — the three selection-bar buttons, the two tab
+  pill icons and the search round — and it runs on every tab switch, every selection toggle and
+  every `renderAll()`; the viewer bar re-parsed its three on every slide.
+- Each distinct markup string is now parsed once. The first element that needs it is written the
+  old way, and a `<template>` of the same markup is kept beside it in a `Map`; from then on a
+  render clones that template's content into the container. `renderHead()`, `renderTabs()`, the
+  viewer shell and the viewer bar all go through one `fill(el, html)` helper, so the chrome writes
+  are in one place.
+- Measured on the suite's page, 2000 renders of the selection bar, the tab pill and the search
+  round take **826 ms parsing the markup against 372 ms cloning it** — 0.41 ms to 0.19 ms of parse
+  work per chrome render, a 55% cut, and the work is now done once instead of 2000 times. The
+  resulting markup is byte-identical: the header, tab bar and selection bar dump the same 7071
+  characters in the library, selection, trash and search states as before this pass, with the same
+  six icons and the same 1304 characters of chrome in selection mode.
+- The grid is deliberately untouched. A tile's check mark is the same icon string, but a 60-tile
+  grid is one 14 KB parse (3.8 ms) against 60 template clones plus attribute writes (4.9 ms) — the
+  parser wins on a whole grid in one pass, and cloning only pays for the small chrome fragments
+  that are rewritten many times over. `MainActivity.java`, `AndroidManifest.xml` and the resources
+  are byte-identical to 1.5.32; the APK differs only in version code and name.
+  `tools/test_suite.js` gains one check (121 total, all PASS): it pins the source shape — `fill()`
+  and the template map present, no `innerHTML` write left in `renderHead`/`renderTabs`, the viewer
+  bar on `fill()` — and then renders the chrome four times on a real page and requires every
+  render to be identical, to hold the same six icons, and to be built from distinct live nodes
+  rather than one shared subtree.
 
 ### 1.5.32 — day 9 of the 20-day optimisation plan, eighty-second pass
 No UI change, no new features. Item 82 of the plan: no second `renderAll()` at boot.
